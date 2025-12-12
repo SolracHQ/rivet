@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::domain::job::{Job, JobResult, JobStatus};
+use crate::domain::job::{JobResult, JobStatus};
 
 /// Request to create/trigger a new job
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,9 +1,8 @@
 //! Pipeline DTOs for inter-service communication
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
-use crate::domain::pipeline::{Pipeline, PipelineConfig};
+use crate::domain::pipeline::PipelineConfig;
 
 /// Lightweight pipeline summary for listing
 /// Request to create a new pipeline

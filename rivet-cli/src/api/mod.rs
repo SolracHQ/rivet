@@ -10,7 +10,6 @@ use rivet_core::domain::pipeline::Pipeline;
 use rivet_core::domain::runner::Runner;
 use rivet_core::dto::job::CreateJob;
 use rivet_core::dto::pipeline::CreatePipeline;
-use rivet_core::dto::runner::RegisterRunner;
 use uuid::Uuid;
 
 /// HTTP client for the Rivet orchestrator API

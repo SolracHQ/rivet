@@ -7,7 +7,6 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
 use rivet_core::domain::log::LogEntry;
-use serde::Serialize;
 use uuid::Uuid;
 
 /// Repository trait for log-related operations with the orchestrator
@@ -52,7 +51,7 @@ impl LogRepository for HttpLogRepository {
         let response = self
             .client
             .post(&url)
-            .json(&SendLogsRequest { entries })
+            .json(&entries)
             .send()
             .await
             .context("Failed to send logs")?;
@@ -65,9 +64,4 @@ impl LogRepository for HttpLogRepository {
 
         Ok(())
     }
-}
-
-#[derive(Debug, Serialize)]
-struct SendLogsRequest {
-    entries: Vec<LogEntry>,
 }
