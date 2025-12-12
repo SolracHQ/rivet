@@ -90,7 +90,7 @@ pub async fn resolve_job_id(client: &ApiClient, id_or_prefix: &IdOrPrefix) -> Re
 
     // Fetch all scheduled jobs
     let jobs = client
-        .list_scheduled_jobs()
+        .list_all_jobs()
         .await
         .context("Failed to fetch jobs for ID resolution")?;
 

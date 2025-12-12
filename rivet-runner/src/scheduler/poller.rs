@@ -75,7 +75,7 @@ impl JobPoller {
                     }
                 }
                 Err(e) => {
-                    error!("Error during poll cycle: {}", e);
+                    error!("Error during poll cycle: {:#}", e);
                     // Continue polling even if one cycle fails
                 }
             }
@@ -139,7 +139,7 @@ impl JobPoller {
             )
             .await
             {
-                error!("Failed to execute job {}: {}", job_id, e);
+                error!("Failed to execute job {}: {:#}", job_id, e);
             }
         })
     }
@@ -170,7 +170,7 @@ impl JobPoller {
             .update_job_status(job_id, rivet_core::domain::job::JobStatus::Running)
             .await
         {
-            warn!("Failed to update job status to running: {}", e);
+            warn!("Failed to update job status to running: {:#}", e);
             // Continue anyway - execution is more important
         }
 
@@ -178,12 +178,12 @@ impl JobPoller {
         let metadata = match parse_pipeline_metadata(&exec_info.pipeline_source) {
             Ok(meta) => meta,
             Err(e) => {
-                error!("Failed to parse pipeline metadata: {}", e);
+                error!("Failed to parse pipeline metadata: {:#}", e);
                 let result = rivet_core::domain::job::JobResult {
                     success: false,
                     exit_code: 1,
                     output: None,
-                    error_message: Some(format!("Failed to parse pipeline: {}", e)),
+                    error_message: Some(format!("Failed to parse pipeline: {:#}", e)),
                 };
                 let _ = job_repo.complete_job(job_id, result).await;
                 return Err(e);
@@ -231,7 +231,7 @@ impl JobPoller {
                 job_id
             );
             if let Err(e) = log_repo.send_logs(job_id, remaining_logs).await {
-                warn!("Failed to send final logs: {}", e);
+                warn!("Failed to send final logs: {:#}", e);
                 // Don't fail the job just because log sending failed
             }
         }
@@ -275,7 +275,7 @@ impl JobPoller {
                 debug!("Sending {} logs for job {}", logs.len(), job_id);
 
                 if let Err(e) = log_repo.send_logs(job_id, logs).await {
-                    error!("Failed to send logs for job {}: {}", job_id, e);
+                    error!("Failed to send logs for job {}: {:#}", job_id, e);
                     // Continue trying on next interval
                 }
             }
@@ -296,7 +296,7 @@ impl JobPoller {
                 debug!("Sending heartbeat");
 
                 if let Err(e) = runner_repo.send_heartbeat().await {
-                    warn!("Failed to send heartbeat: {}", e);
+                    warn!("Failed to send heartbeat: {:#}", e);
                     // Continue trying on next interval
                 }
             }

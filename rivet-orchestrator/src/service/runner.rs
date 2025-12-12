@@ -3,7 +3,7 @@
 //! Business logic for runner management.
 
 use rivet_core::domain::runner::Runner;
-use rivet_core::dto::runner::{RegisterRunner, RunnerSummary};
+use rivet_core::dto::runner::RegisterRunner;
 use sqlx::PgPool;
 
 use crate::repository::runner_repository;
@@ -69,11 +69,9 @@ pub async fn get_runner(pool: &PgPool, id: &str) -> Result<Runner> {
 }
 
 /// List all runners
-pub async fn list_runners(pool: &PgPool) -> Result<Vec<RunnerSummary>> {
+pub async fn list_runners(pool: &PgPool) -> Result<Vec<Runner>> {
     let runners = runner_repository::list_all(pool).await?;
-    let summaries = runners.into_iter().map(|r| r.into()).collect();
-
-    Ok(summaries)
+    Ok(runners)
 }
 
 /// Delete a runner

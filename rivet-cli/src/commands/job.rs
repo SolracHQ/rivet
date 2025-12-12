@@ -8,7 +8,6 @@ use clap::Subcommand;
 use colored::*;
 use rivet_core::domain::job::{Job, JobStatus};
 use rivet_core::domain::log::{LogEntry, LogLevel};
-use rivet_core::dto::job::JobSummary;
 
 use crate::api::ApiClient;
 use crate::config::Config;
@@ -18,6 +17,8 @@ use crate::types::IdOrPrefix;
 /// Job subcommands
 #[derive(Subcommand)]
 pub enum JobCommands {
+    /// List all jobs
+    List,
     /// List scheduled jobs
     Scheduled,
     /// Get job details
@@ -56,6 +57,7 @@ pub async fn handle_job_command(command: JobCommands, config: &Config) -> Result
     let client = ApiClient::new(&config.orchestrator_url);
 
     match command {
+        JobCommands::List => list_all_jobs(&client).await,
         JobCommands::Scheduled => list_scheduled_jobs(&client).await,
         JobCommands::Get { id } => get_job(&client, &id).await,
         JobCommands::Logs { id, follow } => get_job_logs(&client, &id, follow).await,
@@ -63,6 +65,23 @@ pub async fn handle_job_command(command: JobCommands, config: &Config) -> Result
             list_pipeline_jobs(&client, &pipeline_id, job).await
         }
     }
+}
+
+/// List all jobs
+async fn list_all_jobs(client: &ApiClient) -> Result<()> {
+    let jobs = client.list_all_jobs().await?;
+
+    if jobs.is_empty() {
+        println!("{}", "No jobs found.".yellow());
+    } else {
+        println!("{}", format!("Found {} job(s):", jobs.len()).bold());
+        println!();
+        for job in jobs {
+            print_job_summary(&job);
+        }
+    }
+
+    Ok(())
 }
 
 /// List all scheduled jobs
@@ -170,8 +189,8 @@ async fn list_pipeline_jobs(
     Ok(())
 }
 
-/// Print a job summary
-fn print_job_summary(job: &JobSummary) {
+/// Print a job summary from a full Job object
+fn print_job_summary(job: &Job) {
     let status_colored = colorize_status(&job.status);
 
     println!("  {} Job {}", "▸".cyan(), job.id.to_string().dimmed());

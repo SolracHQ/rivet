@@ -8,7 +8,7 @@ use clap::Subcommand;
 use colored::*;
 use rivet_core::domain::pipeline::{Pipeline, PipelineConfig};
 use rivet_core::dto::job::CreateJob;
-use rivet_core::dto::pipeline::{CreatePipeline, PipelineSummary};
+use rivet_core::dto::pipeline::CreatePipeline;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 
@@ -279,7 +279,7 @@ async fn launch_job(client: &ApiClient, id: &str, params: Vec<(String, String)>)
 }
 
 /// Print a pipeline summary
-fn print_pipeline_summary(pipeline: &PipelineSummary) {
+fn print_pipeline_summary(pipeline: &Pipeline) {
     println!("  {} {}", "▸".cyan(), pipeline.name.bold());
     println!("    ID:      {}", pipeline.id.to_string().dimmed());
     println!(
@@ -291,7 +291,7 @@ fn print_pipeline_summary(pipeline: &PipelineSummary) {
             .dimmed()
     );
     if let Some(desc) = &pipeline.description {
-        println!("    Desc:    {}", desc.dimmed());
+        println!("    Description: {}", desc.dimmed());
     }
     if !pipeline.tags.is_empty() {
         println!("    Tags:    {}", pipeline.tags.join(", ").dimmed());

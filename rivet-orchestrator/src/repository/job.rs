@@ -100,6 +100,23 @@ pub async fn find_by_pipeline(pool: &PgPool, pipeline_id: Uuid) -> Result<Vec<Jo
 }
 
 /// Update job status and runner assignment (for starting execution)
+/// List all jobs
+pub async fn list_all(pool: &PgPool) -> Result<Vec<Job>, sqlx::Error> {
+    let rows = sqlx::query_as::<_, JobRow>(
+        r#"
+        SELECT id, pipeline_id, status, requested_at, started_at, completed_at,
+               runner_id, parameters, result_success, result_exit_code,
+               result_output, result_error_message
+        FROM jobs
+        ORDER BY requested_at DESC
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows.into_iter().map(|r| r.into()).collect())
+}
+
 pub async fn update_status_to_running(
     pool: &PgPool,
     job_id: Uuid,

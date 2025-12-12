@@ -12,6 +12,7 @@ use reqwest::Client;
 use rivet_core::domain::job::{Job, JobResult, JobStatus};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tracing::error;
 use uuid::Uuid;
 
 /// Repository trait for job-related operations with the orchestrator
@@ -80,34 +81,49 @@ impl JobRepository for HttpJobRepository {
             .query(&[("runner_id", &self.runner_id)])
             .send()
             .await
-            .context("Failed to fetch scheduled jobs")?;
+            .context("Failed to send request to orchestrator")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
+        let status = response.status();
+
+        if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Failed to fetch jobs: {} - {}", status, body);
+            anyhow::bail!("Orchestrator returned error status {}: {}", status, body);
         }
 
-        let jobs = response
-            .json::<Vec<Job>>()
+        // Try to get the response body first for better error reporting
+        let body = response
+            .text()
             .await
-            .context("Failed to parse job list")?;
+            .context("Failed to read response body")?;
+
+        // Parse the JSON
+        let jobs: Vec<Job> = serde_json::from_str(&body).map_err(|e| {
+            error!(
+                "Failed to parse job list. Status: {}, Body: {}",
+                status, body
+            );
+            anyhow::anyhow!(
+                "Failed to parse job list from orchestrator: {}. Response body: {}",
+                e,
+                body
+            )
+        })?;
 
         Ok(jobs)
     }
 
     async fn claim_job(&self, job_id: Uuid) -> Result<JobExecutionInfo> {
-        let url = format!("{}/api/jobs/{}/claim", self.orchestrator_url, job_id);
+        let url = format!("{}/api/jobs/execute/{}", self.orchestrator_url, job_id);
 
         let response = self
             .client
             .post(&url)
-            .json(&ClaimJobRequest {
+            .json(&ExecuteJobRequest {
                 runner_id: self.runner_id.clone(),
             })
             .send()
             .await
-            .context("Failed to claim job")?;
+            .context("Failed to execute job")?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -146,10 +162,20 @@ impl JobRepository for HttpJobRepository {
     async fn complete_job(&self, job_id: Uuid, result: JobResult) -> Result<()> {
         let url = format!("{}/api/jobs/{}/complete", self.orchestrator_url, job_id);
 
+        // Determine status from result
+        let status = if result.success {
+            JobStatus::Succeeded
+        } else {
+            JobStatus::Failed
+        };
+
         let response = self
             .client
             .post(&url)
-            .json(&CompleteJobRequest { result })
+            .json(&CompleteJobRequest {
+                status,
+                result: Some(result),
+            })
             .send()
             .await
             .context("Failed to complete job")?;
@@ -178,7 +204,7 @@ pub struct JobExecutionInfo {
 }
 
 #[derive(Debug, Serialize)]
-struct ClaimJobRequest {
+struct ExecuteJobRequest {
     runner_id: String,
 }
 
@@ -189,5 +215,6 @@ struct UpdateStatusRequest {
 
 #[derive(Debug, Serialize)]
 struct CompleteJobRequest {
-    result: JobResult,
+    status: JobStatus,
+    result: Option<JobResult>,
 }

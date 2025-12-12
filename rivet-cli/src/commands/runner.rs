@@ -5,8 +5,7 @@
 use anyhow::Result;
 use clap::Subcommand;
 use colored::*;
-use rivet_core::domain::runner::RunnerStatus;
-use rivet_core::dto::runner::RunnerSummary;
+use rivet_core::domain::runner::{Runner, RunnerStatus};
 
 use crate::api::ApiClient;
 use crate::config::Config;
@@ -54,14 +53,14 @@ async fn list_runners(client: &ApiClient) -> Result<()> {
 }
 
 /// Print a runner summary
-fn print_runner_summary(runner: &RunnerSummary) {
+fn print_runner_summary(runner: &Runner) {
     let status_colored = colorize_status(&runner.status);
 
     println!("  {} Runner {}", "▸".cyan(), runner.id.bold());
     println!("    Status:       {}", status_colored);
     println!(
         "    Capabilities: {}",
-        runner.capability_count.to_string().dimmed()
+        runner.capabilities.len().to_string().dimmed()
     );
     println!(
         "    Registered:   {}",

@@ -7,9 +7,10 @@ use reqwest::Client;
 use rivet_core::domain::job::Job;
 use rivet_core::domain::log::LogEntry;
 use rivet_core::domain::pipeline::Pipeline;
-use rivet_core::dto::job::{CreateJob, JobSummary};
-use rivet_core::dto::pipeline::{CreatePipeline, PipelineSummary};
-use rivet_core::dto::runner::RunnerSummary;
+use rivet_core::domain::runner::Runner;
+use rivet_core::dto::job::CreateJob;
+use rivet_core::dto::pipeline::CreatePipeline;
+use rivet_core::dto::runner::RegisterRunner;
 use uuid::Uuid;
 
 /// HTTP client for the Rivet orchestrator API
@@ -53,8 +54,8 @@ impl ApiClient {
     /// List all pipelines
     ///
     /// # Returns
-    /// A list of pipeline summaries
-    pub async fn list_pipelines(&self) -> Result<Vec<PipelineSummary>> {
+    /// A list of pipelines
+    pub async fn list_pipelines(&self) -> Result<Vec<Pipeline>> {
         let url = format!("{}/api/pipeline/list", self.base_url);
         let response = self
             .client
@@ -127,11 +128,27 @@ impl ApiClient {
         self.handle_response(response).await
     }
 
+    /// List all jobs
+    ///
+    /// # Returns
+    /// A list of all jobs
+    pub async fn list_all_jobs(&self) -> Result<Vec<Job>> {
+        let url = format!("{}/api/jobs", self.base_url);
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .context("Failed to send list jobs request")?;
+
+        self.handle_response(response).await
+    }
+
     /// List all scheduled jobs
     ///
     /// # Returns
-    /// A list of scheduled job summaries
-    pub async fn list_scheduled_jobs(&self) -> Result<Vec<JobSummary>> {
+    /// A list of scheduled jobs
+    pub async fn list_scheduled_jobs(&self) -> Result<Vec<Job>> {
         let url = format!("{}/api/jobs/scheduled", self.base_url);
         let response = self
             .client
@@ -187,8 +204,8 @@ impl ApiClient {
     /// * `pipeline_id` - The pipeline UUID
     ///
     /// # Returns
-    /// A list of job summaries for the pipeline
-    pub async fn list_jobs_by_pipeline(&self, pipeline_id: Uuid) -> Result<Vec<JobSummary>> {
+    /// A list of jobs for the pipeline
+    pub async fn list_jobs_by_pipeline(&self, pipeline_id: Uuid) -> Result<Vec<Job>> {
         let url = format!("{}/api/jobs/pipeline/{}", self.base_url, pipeline_id);
         let response = self
             .client
@@ -203,8 +220,8 @@ impl ApiClient {
     /// List all registered runners
     ///
     /// # Returns
-    /// A list of runner summaries
-    pub async fn list_runners(&self) -> Result<Vec<RunnerSummary>> {
+    /// A list of runners
+    pub async fn list_runners(&self) -> Result<Vec<Runner>> {
         let url = format!("{}/api/runners", self.base_url);
         let response = self
             .client

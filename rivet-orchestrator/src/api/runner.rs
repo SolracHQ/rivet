@@ -8,7 +8,7 @@ use axum::{
     http::StatusCode,
 };
 use rivet_core::domain::runner::Runner;
-use rivet_core::dto::runner::{RegisterRunner, RunnerSummary};
+use rivet_core::dto::runner::RegisterRunner;
 use sqlx::PgPool;
 
 use crate::api::error::{ApiError, ApiResult};
@@ -66,7 +66,7 @@ pub async fn runner_heartbeat(
 
 /// GET /api/runners
 /// List all registered runners
-pub async fn list_runners(State(pool): State<PgPool>) -> ApiResult<Json<Vec<RunnerSummary>>> {
+pub async fn list_runners(State(pool): State<PgPool>) -> ApiResult<Json<Vec<Runner>>> {
     tracing::debug!("Listing all runners");
 
     let runners = runner_service::list_runners(&pool)

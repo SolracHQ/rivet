@@ -8,7 +8,7 @@ use axum::{
     http::StatusCode,
 };
 use rivet_core::domain::pipeline::Pipeline;
-use rivet_core::dto::pipeline::{CreatePipeline, PipelineSummary};
+use rivet_core::dto::pipeline::CreatePipeline;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -38,7 +38,7 @@ pub async fn create_pipeline(
 
 /// GET /pipeline/list
 /// List all pipelines
-pub async fn list_pipelines(State(pool): State<PgPool>) -> ApiResult<Json<Vec<PipelineSummary>>> {
+pub async fn list_pipelines(State(pool): State<PgPool>) -> ApiResult<Json<Vec<Pipeline>>> {
     tracing::debug!("Listing all pipelines");
 
     let pipelines = pipeline_service::list_pipelines(&pool)

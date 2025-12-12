@@ -4,7 +4,7 @@
 
 use rivet_core::domain::job::{Job, JobResult, JobStatus};
 use rivet_core::domain::pipeline::Pipeline;
-use rivet_core::dto::job::{CreateJob, JobSummary};
+use rivet_core::dto::job::CreateJob;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -51,30 +51,26 @@ pub async fn get_job(pool: &PgPool, id: Uuid) -> Result<Job, JobError> {
 }
 
 /// List jobs by status
-pub async fn list_jobs_by_status(
-    pool: &PgPool,
-    status: JobStatus,
-) -> Result<Vec<JobSummary>, JobError> {
+pub async fn list_jobs_by_status(pool: &PgPool, status: JobStatus) -> Result<Vec<Job>, JobError> {
     let jobs = job_repository::find_by_status(pool, status).await?;
-    let dtos = jobs.into_iter().map(|j| j.into()).collect();
+    Ok(jobs)
+}
 
-    Ok(dtos)
+/// List all jobs
+pub async fn list_all_jobs(pool: &PgPool) -> Result<Vec<Job>, JobError> {
+    let jobs = job_repository::list_all(pool).await?;
+    Ok(jobs)
 }
 
 /// List jobs by pipeline
-pub async fn list_jobs_by_pipeline(
-    pool: &PgPool,
-    pipeline_id: Uuid,
-) -> Result<Vec<JobSummary>, JobError> {
+pub async fn list_jobs_by_pipeline(pool: &PgPool, pipeline_id: Uuid) -> Result<Vec<Job>, JobError> {
     // Verify pipeline exists
     let _pipeline = pipeline_repository::find_by_id(pool, pipeline_id)
         .await?
         .ok_or(JobError::PipelineNotFound(pipeline_id))?;
 
     let jobs = job_repository::find_by_pipeline(pool, pipeline_id).await?;
-    let dtos = jobs.into_iter().map(|j| j.into()).collect();
-
-    Ok(dtos)
+    Ok(jobs)
 }
 
 /// Reserve a job for execution by a runner

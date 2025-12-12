@@ -9,8 +9,7 @@ use axum::{
 };
 use rivet_core::domain::job::{Job, JobResult, JobStatus};
 use rivet_core::domain::log::LogEntry;
-use rivet_core::domain::pipeline::Pipeline;
-use rivet_core::dto::job::{CreateJob, JobSummary};
+use rivet_core::dto::job::CreateJob;
 use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -65,7 +64,29 @@ pub async fn get_job(State(pool): State<PgPool>, Path(id): Path<Uuid>) -> ApiRes
     Ok(Json(job))
 }
 
-/// GET /job/list/scheduled
+/// GET /jobs
+/// List all jobs
+pub async fn list_all_jobs(State(pool): State<PgPool>) -> ApiResult<Json<Vec<Job>>> {
+    tracing::debug!("Listing all jobs");
+
+    let jobs = job_service::list_all_jobs(&pool)
+        .await
+        .map_err(|e| match e {
+            job_service::JobError::DatabaseError(err) => ApiError::DatabaseError(err),
+            job_service::JobError::NotFound(id) => {
+                ApiError::NotFound(format!("Job {} not found", id))
+            }
+            job_service::JobError::PipelineNotFound(id) => {
+                ApiError::NotFound(format!("Pipeline {} not found", id))
+            }
+            job_service::JobError::ValidationError(msg) => ApiError::BadRequest(msg),
+            job_service::JobError::InvalidState(msg) => ApiError::BadRequest(msg),
+        })?;
+
+    Ok(Json(jobs))
+}
+
+/// GET /jobs/scheduled
 /// List all scheduled (queued) jobs
 ///
 /// Query parameters:
@@ -73,7 +94,7 @@ pub async fn get_job(State(pool): State<PgPool>, Path(id): Path<Uuid>) -> ApiRes
 pub async fn list_scheduled_jobs(
     State(pool): State<PgPool>,
     Query(params): Query<ScheduledJobsQuery>,
-) -> ApiResult<Json<Vec<JobSummary>>> {
+) -> ApiResult<Json<Vec<Job>>> {
     if let Some(runner_id) = &params.runner_id {
         tracing::debug!("Listing scheduled jobs for runner: {}", runner_id);
     } else {
@@ -107,7 +128,7 @@ pub struct ScheduledJobsQuery {
 pub async fn list_jobs_by_pipeline(
     State(pool): State<PgPool>,
     Path(pipeline_id): Path<Uuid>,
-) -> ApiResult<Json<Vec<JobSummary>>> {
+) -> ApiResult<Json<Vec<Job>>> {
     tracing::debug!("Listing jobs for pipeline: {}", pipeline_id);
 
     let jobs = job_service::list_jobs_by_pipeline(&pool, pipeline_id)
@@ -152,7 +173,8 @@ pub async fn execute_job(
 
     let response = ExecuteJobResponse {
         job_id: job.id,
-        pipeline,
+        pipeline_id: pipeline.id,
+        pipeline_source: pipeline.script,
         parameters: job.parameters,
     };
 
@@ -251,7 +273,8 @@ pub struct ExecuteJobRequest {
 #[derive(Debug, serde::Serialize)]
 pub struct ExecuteJobResponse {
     pub job_id: Uuid,
-    pub pipeline: Pipeline,
+    pub pipeline_id: Uuid,
+    pub pipeline_source: String,
     pub parameters: std::collections::HashMap<String, serde_json::Value>,
 }
 

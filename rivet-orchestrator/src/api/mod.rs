@@ -37,6 +37,7 @@ pub fn create_router(pool: PgPool) -> Router {
         .route("/api/pipeline/{id}", get(pipeline::get_pipeline))
         .route("/api/pipeline/{id}", delete(pipeline::delete_pipeline))
         // Job endpoints
+        .route("/api/jobs", get(job::list_all_jobs))
         .route("/api/jobs/scheduled", get(job::list_scheduled_jobs))
         .route("/api/jobs/execute/{id}", post(job::execute_job))
         .route("/api/jobs/{id}", get(job::get_job))

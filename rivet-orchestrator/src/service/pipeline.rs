@@ -3,7 +3,7 @@
 //! Business logic for pipeline management.
 
 use rivet_core::domain::pipeline::Pipeline;
-use rivet_core::dto::pipeline::{CreatePipeline, PipelineSummary};
+use rivet_core::dto::pipeline::CreatePipeline;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -48,11 +48,9 @@ pub async fn get_pipeline(pool: &PgPool, id: Uuid) -> Result<Pipeline> {
 }
 
 /// List all pipelines
-pub async fn list_pipelines(pool: &PgPool) -> Result<Vec<PipelineSummary>> {
+pub async fn list_pipelines(pool: &PgPool) -> Result<Vec<Pipeline>> {
     let pipelines = pipeline_repository::list_all(pool).await?;
-    let dtos = pipelines.into_iter().map(|p| p.into()).collect();
-
-    Ok(dtos)
+    Ok(pipelines)
 }
 
 /// Update a pipeline
