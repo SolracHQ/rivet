@@ -2,7 +2,7 @@
 //!
 //! Business logic for job log management.
 
-use rivet_core::types::LogEntry;
+use rivet_core::domain::log::LogEntry;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -94,7 +94,7 @@ fn validate_log_entries(entries: &[LogEntry]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rivet_core::types::LogLevel;
+    use rivet_core::domain::log::LogLevel;
 
     #[test]
     fn test_validate_log_entries_valid() {

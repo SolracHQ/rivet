@@ -2,7 +2,9 @@
 //!
 //! Business logic for job management and lifecycle.
 
-use rivet_core::types::{CreateJobRequest, Job, JobDto, JobResult, JobStatus, Pipeline};
+use rivet_core::domain::job::{Job, JobResult, JobStatus};
+use rivet_core::domain::pipeline::Pipeline;
+use rivet_core::dto::job::{CreateJob, JobSummary};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -24,10 +26,8 @@ impl From<sqlx::Error> for JobError {
     }
 }
 
-pub type Result<T> = std::result::Result<T, JobError>;
-
 /// Create and schedule a new job
-pub async fn create_job(pool: &PgPool, req: CreateJobRequest) -> Result<Job> {
+pub async fn launch_job(pool: &PgPool, req: CreateJob) -> Result<Job, JobError> {
     // Verify pipeline exists
     let _pipeline = pipeline_repository::find_by_id(pool, req.pipeline_id)
         .await?
@@ -42,7 +42,7 @@ pub async fn create_job(pool: &PgPool, req: CreateJobRequest) -> Result<Job> {
 }
 
 /// Get a job by ID
-pub async fn get_job(pool: &PgPool, id: Uuid) -> Result<Job> {
+pub async fn get_job(pool: &PgPool, id: Uuid) -> Result<Job, JobError> {
     let job = job_repository::find_by_id(pool, id)
         .await?
         .ok_or(JobError::NotFound(id))?;
@@ -51,7 +51,10 @@ pub async fn get_job(pool: &PgPool, id: Uuid) -> Result<Job> {
 }
 
 /// List jobs by status
-pub async fn list_jobs_by_status(pool: &PgPool, status: JobStatus) -> Result<Vec<JobDto>> {
+pub async fn list_jobs_by_status(
+    pool: &PgPool,
+    status: JobStatus,
+) -> Result<Vec<JobSummary>, JobError> {
     let jobs = job_repository::find_by_status(pool, status).await?;
     let dtos = jobs.into_iter().map(|j| j.into()).collect();
 
@@ -59,7 +62,10 @@ pub async fn list_jobs_by_status(pool: &PgPool, status: JobStatus) -> Result<Vec
 }
 
 /// List jobs by pipeline
-pub async fn list_jobs_by_pipeline(pool: &PgPool, pipeline_id: Uuid) -> Result<Vec<JobDto>> {
+pub async fn list_jobs_by_pipeline(
+    pool: &PgPool,
+    pipeline_id: Uuid,
+) -> Result<Vec<JobSummary>, JobError> {
     // Verify pipeline exists
     let _pipeline = pipeline_repository::find_by_id(pool, pipeline_id)
         .await?
@@ -76,7 +82,7 @@ pub async fn reserve_job_for_execution(
     pool: &PgPool,
     job_id: Uuid,
     runner_id: String,
-) -> Result<(Job, Pipeline)> {
+) -> Result<(Job, Pipeline), JobError> {
     // Get the job
     let job = job_repository::find_by_id(pool, job_id)
         .await?
@@ -114,7 +120,7 @@ pub async fn complete_job(
     job_id: Uuid,
     status: JobStatus,
     result: Option<JobResult>,
-) -> Result<()> {
+) -> Result<(), JobError> {
     // Verify job exists
     let job = job_repository::find_by_id(pool, job_id)
         .await?
@@ -146,7 +152,7 @@ pub async fn complete_job(
 }
 
 /// Cancel a job
-pub async fn cancel_job(pool: &PgPool, job_id: Uuid) -> Result<()> {
+pub async fn cancel_job(pool: &PgPool, job_id: Uuid) -> Result<(), JobError> {
     let job = job_repository::find_by_id(pool, job_id)
         .await?
         .ok_or(JobError::NotFound(job_id))?;
@@ -169,7 +175,7 @@ pub async fn cancel_job(pool: &PgPool, job_id: Uuid) -> Result<()> {
 // Validation
 // =============================================================================
 
-fn validate_completion_status(status: JobStatus) -> Result<()> {
+fn validate_completion_status(status: JobStatus) -> Result<(), JobError> {
     match status {
         JobStatus::Succeeded | JobStatus::Failed | JobStatus::TimedOut | JobStatus::Cancelled => {
             Ok(())

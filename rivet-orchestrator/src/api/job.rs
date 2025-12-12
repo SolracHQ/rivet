@@ -4,10 +4,14 @@
 
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
 };
-use rivet_core::types::{CreateJobRequest, Job, JobDto, JobResult, JobStatus, LogEntry, Pipeline};
+use rivet_core::domain::job::{Job, JobResult, JobStatus};
+use rivet_core::domain::log::LogEntry;
+use rivet_core::domain::pipeline::Pipeline;
+use rivet_core::dto::job::{CreateJob, JobSummary};
+use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -22,11 +26,11 @@ use crate::service::{job_service, log_service};
 /// Create and launch a new job for a pipeline
 pub async fn launch_job(
     State(pool): State<PgPool>,
-    Json(req): Json<CreateJobRequest>,
+    Json(req): Json<CreateJob>,
 ) -> ApiResult<Json<Job>> {
     tracing::info!("Launching job for pipeline: {}", req.pipeline_id);
 
-    let job = job_service::create_job(&pool, req)
+    let job = job_service::launch_job(&pool, req)
         .await
         .map_err(|e| match e {
             job_service::JobError::PipelineNotFound(id) => {
@@ -63,8 +67,18 @@ pub async fn get_job(State(pool): State<PgPool>, Path(id): Path<Uuid>) -> ApiRes
 
 /// GET /job/list/scheduled
 /// List all scheduled (queued) jobs
-pub async fn list_scheduled_jobs(State(pool): State<PgPool>) -> ApiResult<Json<Vec<JobDto>>> {
-    tracing::debug!("Listing scheduled jobs");
+///
+/// Query parameters:
+/// - `runner_id` (optional): Filter jobs to only those compatible with this runner
+pub async fn list_scheduled_jobs(
+    State(pool): State<PgPool>,
+    Query(params): Query<ScheduledJobsQuery>,
+) -> ApiResult<Json<Vec<JobSummary>>> {
+    if let Some(runner_id) = &params.runner_id {
+        tracing::debug!("Listing scheduled jobs for runner: {}", runner_id);
+    } else {
+        tracing::debug!("Listing all scheduled jobs");
+    }
 
     let jobs = job_service::list_jobs_by_status(&pool, JobStatus::Queued)
         .await
@@ -83,12 +97,17 @@ pub async fn list_scheduled_jobs(State(pool): State<PgPool>) -> ApiResult<Json<V
     Ok(Json(jobs))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ScheduledJobsQuery {
+    pub runner_id: Option<String>,
+}
+
 /// GET /job/pipeline/{pipeline_id}
 /// List all jobs for a specific pipeline
 pub async fn list_jobs_by_pipeline(
     State(pool): State<PgPool>,
     Path(pipeline_id): Path<Uuid>,
-) -> ApiResult<Json<Vec<JobDto>>> {
+) -> ApiResult<Json<Vec<JobSummary>>> {
     tracing::debug!("Listing jobs for pipeline: {}", pipeline_id);
 
     let jobs = job_service::list_jobs_by_pipeline(&pool, pipeline_id)

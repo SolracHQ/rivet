@@ -2,7 +2,7 @@
 //!
 //! Handles all database operations related to job logs.
 
-use rivet_core::types::{LogEntry, LogLevel};
+use rivet_core::domain::log::{LogEntry, LogLevel};
 use sqlx::PgPool;
 use uuid::Uuid;
 

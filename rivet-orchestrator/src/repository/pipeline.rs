@@ -2,12 +2,13 @@
 //!
 //! Handles all database operations related to pipelines.
 
-use rivet_core::types::{CreatePipelineRequest, Pipeline, PipelineConfig};
+use rivet_core::domain::pipeline::{Pipeline, PipelineConfig};
+use rivet_core::dto::pipeline::CreatePipeline;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 /// Create a new pipeline in the database
-pub async fn create(pool: &PgPool, req: CreatePipelineRequest) -> Result<Pipeline, sqlx::Error> {
+pub async fn create(pool: &PgPool, req: CreatePipeline) -> Result<Pipeline, sqlx::Error> {
     let id = Uuid::new_v4();
     let now = chrono::Utc::now();
     let config = req.config.unwrap_or_default();
@@ -84,11 +85,7 @@ pub async fn list_all(pool: &PgPool) -> Result<Vec<Pipeline>, sqlx::Error> {
 }
 
 /// Update a pipeline
-pub async fn update(
-    pool: &PgPool,
-    id: Uuid,
-    req: CreatePipelineRequest,
-) -> Result<bool, sqlx::Error> {
+pub async fn update(pool: &PgPool, id: Uuid, req: CreatePipeline) -> Result<bool, sqlx::Error> {
     let now = chrono::Utc::now();
     let config = req.config.unwrap_or_default();
 

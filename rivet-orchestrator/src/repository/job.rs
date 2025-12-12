@@ -2,12 +2,13 @@
 //!
 //! Handles all database operations related to jobs.
 
-use rivet_core::types::{CreateJobRequest, Job, JobResult, JobStatus};
+use rivet_core::domain::job::{Job, JobResult, JobStatus};
+use rivet_core::dto::job::CreateJob;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 /// Create a new job in the database
-pub async fn create(pool: &PgPool, req: CreateJobRequest) -> Result<Job, sqlx::Error> {
+pub async fn create(pool: &PgPool, req: CreateJob) -> Result<Job, sqlx::Error> {
     let id = Uuid::new_v4();
     let now = chrono::Utc::now();
 

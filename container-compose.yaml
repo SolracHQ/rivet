@@ -22,7 +22,8 @@ services:
         image: docker.io/debian:bookworm-slim
         container_name: rivet_orchestrator
         depends_on:
-            - postgres
+            postgres:
+                condition: service_healthy
         ports:
             - "8080:8080"
         environment:
@@ -32,20 +33,31 @@ services:
         volumes:
             # Mount debug binaries from the project to run the orchestrator binary directly
             - ./target/debug:/app/target/debug:ro
+        healthcheck:
+            test:
+                [
+                    "CMD-SHELL",
+                    "curl -f http://localhost:8080/api/health || exit 1",
+                ]
+            interval: 5s
+            timeout: 3s
+            retries: 10
+            start_period: 10s
         command:
             - sh
             - -c
             - |
                 set -eu; \
                 # Ensure minimal runtime deps exist (installs only on start; ok for local dev).
-                apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3; \
+                apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 curl; \
                 exec /app/target/debug/rivet-orchestrator
 
     runner:
         image: docker.io/debian:bookworm-slim
         container_name: rivet_runner
         depends_on:
-            - orchestrator
+            orchestrator:
+                condition: service_healthy
         environment:
             RUST_LOG: debug
             ORCHESTRATOR_URL: http://orchestrator:8080

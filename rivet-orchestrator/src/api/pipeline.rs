@@ -7,7 +7,8 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use rivet_core::types::{CreatePipelineRequest, Pipeline, PipelineDto};
+use rivet_core::domain::pipeline::Pipeline;
+use rivet_core::dto::pipeline::{CreatePipeline, PipelineSummary};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -18,7 +19,7 @@ use crate::service::pipeline_service;
 /// Create a new pipeline
 pub async fn create_pipeline(
     State(pool): State<PgPool>,
-    Json(req): Json<CreatePipelineRequest>,
+    Json(req): Json<CreatePipeline>,
 ) -> ApiResult<Json<Pipeline>> {
     tracing::info!("Creating pipeline: {}", req.name);
 
@@ -37,7 +38,7 @@ pub async fn create_pipeline(
 
 /// GET /pipeline/list
 /// List all pipelines
-pub async fn list_pipelines(State(pool): State<PgPool>) -> ApiResult<Json<Vec<PipelineDto>>> {
+pub async fn list_pipelines(State(pool): State<PgPool>) -> ApiResult<Json<Vec<PipelineSummary>>> {
     tracing::debug!("Listing all pipelines");
 
     let pipelines = pipeline_service::list_pipelines(&pool)

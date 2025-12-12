@@ -2,7 +2,8 @@
 //!
 //! Business logic for pipeline management.
 
-use rivet_core::types::{CreatePipelineRequest, Pipeline, PipelineDto};
+use rivet_core::domain::pipeline::Pipeline;
+use rivet_core::dto::pipeline::{CreatePipeline, PipelineSummary};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -25,7 +26,7 @@ impl From<sqlx::Error> for PipelineError {
 pub type Result<T> = std::result::Result<T, PipelineError>;
 
 /// Create a new pipeline
-pub async fn create_pipeline(pool: &PgPool, req: CreatePipelineRequest) -> Result<Pipeline> {
+pub async fn create_pipeline(pool: &PgPool, req: CreatePipeline) -> Result<Pipeline> {
     // Validate request
     validate_pipeline_request(&req)?;
 
@@ -47,7 +48,7 @@ pub async fn get_pipeline(pool: &PgPool, id: Uuid) -> Result<Pipeline> {
 }
 
 /// List all pipelines
-pub async fn list_pipelines(pool: &PgPool) -> Result<Vec<PipelineDto>> {
+pub async fn list_pipelines(pool: &PgPool) -> Result<Vec<PipelineSummary>> {
     let pipelines = pipeline_repository::list_all(pool).await?;
     let dtos = pipelines.into_iter().map(|p| p.into()).collect();
 
@@ -55,11 +56,7 @@ pub async fn list_pipelines(pool: &PgPool) -> Result<Vec<PipelineDto>> {
 }
 
 /// Update a pipeline
-pub async fn update_pipeline(
-    pool: &PgPool,
-    id: Uuid,
-    req: CreatePipelineRequest,
-) -> Result<Pipeline> {
+pub async fn update_pipeline(pool: &PgPool, id: Uuid, req: CreatePipeline) -> Result<Pipeline> {
     // Validate request
     validate_pipeline_request(&req)?;
 
@@ -96,7 +93,7 @@ pub async fn delete_pipeline(pool: &PgPool, id: Uuid) -> Result<()> {
 // Validation
 // =============================================================================
 
-fn validate_pipeline_request(req: &CreatePipelineRequest) -> Result<()> {
+fn validate_pipeline_request(req: &CreatePipeline) -> Result<()> {
     if req.name.trim().is_empty() {
         return Err(PipelineError::ValidationError(
             "Pipeline name cannot be empty".to_string(),
@@ -132,7 +129,7 @@ mod tests {
 
     #[test]
     fn test_validate_empty_name() {
-        let req = CreatePipelineRequest {
+        let req = CreatePipeline {
             name: "".to_string(),
             description: None,
             script: "log.info('test')".to_string(),
@@ -147,7 +144,7 @@ mod tests {
 
     #[test]
     fn test_validate_empty_script() {
-        let req = CreatePipelineRequest {
+        let req = CreatePipeline {
             name: "Test".to_string(),
             description: None,
             script: "".to_string(),
@@ -162,16 +159,18 @@ mod tests {
 
     #[test]
     fn test_validate_valid_request() {
-        let req = CreatePipelineRequest {
+        let req = CreatePipeline {
             name: "Test Pipeline".to_string(),
             description: Some("A test pipeline".to_string()),
-            script: "log.info('test')".to_string(),
+            // TODO: replace for a valid pipeline script definition
+            script: "return {}".to_string(),
             required_modules: vec!["log".to_string()],
             tags: vec!["test".to_string()],
             config: None,
         };
 
         let result = validate_pipeline_request(&req);
+        println!("{result:?}");
         assert!(result.is_ok());
     }
 }

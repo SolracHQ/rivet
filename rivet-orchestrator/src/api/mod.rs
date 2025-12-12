@@ -7,6 +7,7 @@ pub mod error;
 pub mod health;
 pub mod job;
 pub mod pipeline;
+pub mod runner;
 
 use axum::{
     Router,
@@ -19,22 +20,31 @@ use tower_http::trace::TraceLayer;
 pub fn create_router(pool: PgPool) -> Router {
     Router::new()
         // Health check
-        .route("/health", get(health::health_check))
-        // Pipeline endpoints
-        .route("/pipeline/create", post(pipeline::create_pipeline))
-        .route("/pipeline/launch", post(job::launch_job))
-        .route("/pipeline/list", get(pipeline::list_pipelines))
-        .route("/pipeline/{id}", get(pipeline::get_pipeline))
-        .route("/pipeline/{id}", delete(pipeline::delete_pipeline))
-        // Job endpoints
-        .route("/job/list/scheduled", get(job::list_scheduled_jobs))
-        .route("/job/execute/{id}", post(job::execute_job))
-        .route("/job/{id}", get(job::get_job))
-        .route("/job/{id}/complete", post(job::complete_job))
-        .route("/job/{id}/logs", get(job::get_job_logs))
-        .route("/job/{id}/logs", post(job::add_job_logs))
+        .route("/api/health", get(health::health_check))
+        // Runner endpoints
+        .route("/api/runners/register", post(runner::register_runner))
         .route(
-            "/job/pipeline/{pipeline_id}",
+            "/api/runners/{id}/heartbeat",
+            post(runner::runner_heartbeat),
+        )
+        .route("/api/runners", get(runner::list_runners))
+        .route("/api/runners/{id}", get(runner::get_runner))
+        .route("/api/runners/{id}", delete(runner::delete_runner))
+        // Pipeline endpoints
+        .route("/api/pipeline/create", post(pipeline::create_pipeline))
+        .route("/api/pipeline/launch", post(job::launch_job))
+        .route("/api/pipeline/list", get(pipeline::list_pipelines))
+        .route("/api/pipeline/{id}", get(pipeline::get_pipeline))
+        .route("/api/pipeline/{id}", delete(pipeline::delete_pipeline))
+        // Job endpoints
+        .route("/api/jobs/scheduled", get(job::list_scheduled_jobs))
+        .route("/api/jobs/execute/{id}", post(job::execute_job))
+        .route("/api/jobs/{id}", get(job::get_job))
+        .route("/api/jobs/{id}/complete", post(job::complete_job))
+        .route("/api/jobs/{id}/logs", get(job::get_job_logs))
+        .route("/api/jobs/{id}/logs", post(job::add_job_logs))
+        .route(
+            "/api/jobs/pipeline/{pipeline_id}",
             get(job::list_jobs_by_pipeline),
         )
         // Add state and middleware

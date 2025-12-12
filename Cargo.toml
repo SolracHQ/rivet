@@ -1,5 +1,5 @@
 [workspace]
-members = ["rivet-orchestrator", "rivet-runner", "rivet-core", "rivet-cli"]
+members = ["rivet-orchestrator", "rivet-runner", "rivet-core", "rivet-cli", "rivet-lua"]
 resolver = "3"
 
 [workspace.dependencies]

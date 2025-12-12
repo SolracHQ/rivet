@@ -1,34 +1,60 @@
+//! Environment module for accessing pipeline environment variables
+//!
+//! This module provides a trait-based abstraction for variable access that allows
+//! different components to provide their own implementations:
+//! - Runner: Restricted variable access from job parameters
+//! - CLI: Mock variables for parsing and testing
+//! - Orchestrator: Validation-only variable access
+
+use crate::module::RivetModule;
 use mlua::prelude::*;
-use rivet_core::module::RivetModule;
-use std::collections::HashMap;
+
+/// Trait for providing environment variables
+///
+/// Implement this trait to provide custom variable access behavior.
+/// The EnvModule is generic over this trait, allowing different
+/// components to provide their own implementations.
+///
+/// # Thread Safety
+/// Implementations must be Send + Sync to work with Lua's threading model.
+pub trait VarProvider: Send + Sync {
+    /// Get a variable by name
+    ///
+    /// # Arguments
+    /// * `name` - The name of the variable to retrieve
+    ///
+    /// # Returns
+    /// The variable value if it exists, otherwise None
+    fn get(&self, name: &str) -> Option<String>;
+
+    /// Get all available variable names
+    ///
+    /// # Returns
+    /// A vector of all variable names that can be accessed
+    fn keys(&self) -> Vec<String>;
+}
 
 /// Environment module for accessing pipeline environment variables
 ///
-/// Provides controlled access to environment variables and pipeline parameters.
-/// Variables must be explicitly allowed in the pipeline configuration.
-pub struct EnvModule {
-    /// Allowed environment variables for this execution
-    allowed_vars: HashMap<String, String>,
+/// Generic over VarProvider trait to allow different implementations
+/// depending on the execution context.
+pub struct EnvModule<V: VarProvider> {
+    provider: std::sync::Arc<std::sync::Mutex<V>>,
 }
 
-impl EnvModule {
-    /// Creates a new EnvModule with the specified allowed variables
+impl<V: VarProvider> EnvModule<V> {
+    /// Creates a new EnvModule with the provided variable provider
     ///
     /// # Arguments
-    /// * `allowed_vars` - Map of variable names to values that can be accessed
-    pub fn new(allowed_vars: HashMap<String, String>) -> Self {
-        Self { allowed_vars }
-    }
-
-    /// Creates an EnvModule with no accessible variables
-    pub fn empty() -> Self {
+    /// * `provider` - Implementation of VarProvider trait
+    pub fn new(provider: V) -> Self {
         Self {
-            allowed_vars: HashMap::new(),
+            provider: std::sync::Arc::new(std::sync::Mutex::new(provider)),
         }
     }
 }
 
-impl RivetModule for EnvModule {
+impl<V: VarProvider + 'static> RivetModule for EnvModule<V> {
     fn id(&self) -> &'static str {
         "env"
     }
@@ -36,66 +62,104 @@ impl RivetModule for EnvModule {
     fn register(&self, lua: &Lua) -> LuaResult<()> {
         let env_table = lua.create_table()?;
 
-        // Clone the allowed vars to move into closures
-        let vars_for_get = self.allowed_vars.clone();
-        let vars_for_has = self.allowed_vars.clone();
-        let vars_for_all = self.allowed_vars.clone();
-
         // env.get(name, default?) - Get an environment variable
-        env_table.set(
-            "get",
-            lua.create_function(move |_, (name, default): (String, Option<String>)| {
-                match vars_for_get.get(&name) {
-                    Some(value) => Ok(Some(value.clone())),
-                    None => Ok(default),
-                }
-            })?,
-        )?;
+        {
+            let provider = self.provider.clone();
+            env_table.set(
+                "get",
+                lua.create_function(move |_, (name, default): (String, Option<String>)| {
+                    let value = provider
+                        .lock()
+                        .map_err(|e| {
+                            LuaError::RuntimeError(format!("Failed to lock provider: {}", e))
+                        })?
+                        .get(&name);
+                    Ok(value.or(default))
+                })?,
+            )?;
+        }
 
         // env.require(name) - Get a required environment variable (errors if missing)
-        let vars_for_require = self.allowed_vars.clone();
-        env_table.set(
-            "require",
-            lua.create_function(move |_, name: String| {
-                vars_for_require.get(&name).cloned().ok_or_else(|| {
-                    LuaError::RuntimeError(format!(
-                        "Required environment variable '{}' is not set",
-                        name
-                    ))
-                })
-            })?,
-        )?;
+        {
+            let provider = self.provider.clone();
+            env_table.set(
+                "require",
+                lua.create_function(move |_, name: String| {
+                    provider
+                        .lock()
+                        .map_err(|e| {
+                            LuaError::RuntimeError(format!("Failed to lock provider: {}", e))
+                        })?
+                        .get(&name)
+                        .ok_or_else(|| {
+                            LuaError::RuntimeError(format!(
+                                "Required environment variable '{}' is not set",
+                                name
+                            ))
+                        })
+                })?,
+            )?;
+        }
 
         // env.has(name) - Check if an environment variable exists
-        env_table.set(
-            "has",
-            lua.create_function(move |_, name: String| Ok(vars_for_has.contains_key(&name)))?,
-        )?;
+        {
+            let provider = self.provider.clone();
+            env_table.set(
+                "has",
+                lua.create_function(move |_, name: String| {
+                    Ok(provider
+                        .lock()
+                        .map_err(|e| {
+                            LuaError::RuntimeError(format!("Failed to lock provider: {}", e))
+                        })?
+                        .get(&name)
+                        .is_some())
+                })?,
+            )?;
+        }
 
         // env.all() - Get all available environment variables as a table
-        env_table.set(
-            "all",
-            lua.create_function(move |lua, ()| {
-                let table = lua.create_table()?;
-                for (key, value) in &vars_for_all {
-                    table.set(key.as_str(), value.as_str())?;
-                }
-                Ok(table)
-            })?,
-        )?;
+        {
+            let provider = self.provider.clone();
+            env_table.set(
+                "all",
+                lua.create_function(move |lua, ()| {
+                    let table = lua.create_table()?;
+                    let provider = provider.lock().map_err(|e| {
+                        LuaError::RuntimeError(format!("Failed to lock provider: {}", e))
+                    })?;
+
+                    for key in provider.keys() {
+                        if let Some(value) = provider.get(&key) {
+                            table.set(key.as_str(), value.as_str())?;
+                        }
+                    }
+                    Ok(table)
+                })?,
+            )?;
+        }
 
         // env.keys() - Get all available environment variable names
-        let vars_for_keys = self.allowed_vars.clone();
-        env_table.set(
-            "keys",
-            lua.create_function(move |lua, ()| {
-                let table = lua.create_table()?;
-                for (i, key) in vars_for_keys.keys().enumerate() {
-                    table.set(i + 1, key.as_str())?;
-                }
-                Ok(table)
-            })?,
-        )?;
+        {
+            let provider = self.provider.clone();
+            env_table.set(
+                "keys",
+                lua.create_function(move |lua, ()| {
+                    let table = lua.create_table()?;
+                    let keys = provider
+                        .lock()
+                        .map_err(|e| {
+                            LuaError::RuntimeError(format!("Failed to lock provider: {}", e))
+                        })?
+                        .keys();
+
+                    for (i, key) in keys.iter().enumerate() {
+                        table.set(i + 1, key.as_str())?;
+                    }
+                    Ok(table)
+                })?,
+            )?;
+        }
 
         lua.globals().set(self.id(), env_table)?;
         Ok(())
@@ -162,8 +226,8 @@ function env.keys() end
         .to_string()
     }
 
-    fn metadata(&self) -> rivet_core::module::ModuleMetadata {
-        rivet_core::module::ModuleMetadata {
+    fn metadata(&self) -> crate::module::ModuleMetadata {
+        crate::module::ModuleMetadata {
             id: self.id(),
             version: "1.0.0",
             description: "Environment variable access for pipeline scripts",
@@ -175,6 +239,28 @@ function env.keys() end
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
+    // Test implementation of VarProvider
+    struct TestVarProvider {
+        vars: HashMap<String, String>,
+    }
+
+    impl TestVarProvider {
+        fn new(vars: HashMap<String, String>) -> Self {
+            Self { vars }
+        }
+    }
+
+    impl VarProvider for TestVarProvider {
+        fn get(&self, name: &str) -> Option<String> {
+            self.vars.get(name).cloned()
+        }
+
+        fn keys(&self) -> Vec<String> {
+            self.vars.keys().cloned().collect()
+        }
+    }
 
     #[test]
     fn test_env_module_get() {
@@ -183,7 +269,8 @@ mod tests {
         vars.insert("TEST_VAR".to_string(), "test_value".to_string());
         vars.insert("ANOTHER_VAR".to_string(), "another_value".to_string());
 
-        let module = EnvModule::new(vars);
+        let provider = TestVarProvider::new(vars);
+        let module = EnvModule::new(provider);
         module.register(&lua).unwrap();
 
         // Test getting existing variable
@@ -208,7 +295,8 @@ mod tests {
         let mut vars = HashMap::new();
         vars.insert("REQUIRED_VAR".to_string(), "required_value".to_string());
 
-        let module = EnvModule::new(vars);
+        let provider = TestVarProvider::new(vars);
+        let module = EnvModule::new(provider);
         module.register(&lua).unwrap();
 
         // Test requiring existing variable
@@ -235,7 +323,8 @@ mod tests {
         let mut vars = HashMap::new();
         vars.insert("EXISTS".to_string(), "value".to_string());
 
-        let module = EnvModule::new(vars);
+        let provider = TestVarProvider::new(vars);
+        let module = EnvModule::new(provider);
         module.register(&lua).unwrap();
 
         let exists: bool = lua.load(r#"return env.has("EXISTS")"#).eval().unwrap();
@@ -252,7 +341,8 @@ mod tests {
         vars.insert("VAR1".to_string(), "value1".to_string());
         vars.insert("VAR2".to_string(), "value2".to_string());
 
-        let module = EnvModule::new(vars);
+        let provider = TestVarProvider::new(vars);
+        let module = EnvModule::new(provider);
         module.register(&lua).unwrap();
 
         let script = r#"
@@ -271,7 +361,8 @@ mod tests {
         vars.insert("KEY1".to_string(), "value1".to_string());
         vars.insert("KEY2".to_string(), "value2".to_string());
 
-        let module = EnvModule::new(vars);
+        let provider = TestVarProvider::new(vars);
+        let module = EnvModule::new(provider);
         module.register(&lua).unwrap();
 
         let script = r#"
@@ -289,7 +380,8 @@ mod tests {
     #[test]
     fn test_env_module_empty() {
         let lua = Lua::new();
-        let module = EnvModule::empty();
+        let provider = TestVarProvider::new(HashMap::new());
+        let module = EnvModule::new(provider);
         module.register(&lua).unwrap();
 
         let has_any: bool = lua.load(r#"return env.has("ANYTHING")"#).eval().unwrap();
@@ -309,7 +401,8 @@ mod tests {
 
     #[test]
     fn test_stubs_generation() {
-        let module = EnvModule::empty();
+        let provider = TestVarProvider::new(HashMap::new());
+        let module = EnvModule::new(provider);
         let stubs = module.stubs();
 
         assert!(stubs.contains("---@meta"));

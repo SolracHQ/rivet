@@ -85,6 +85,32 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
 
+    // Create runners table
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS runners (
+            id VARCHAR(255) PRIMARY KEY,
+            capabilities TEXT[] NOT NULL,
+            registered_at TIMESTAMPTZ NOT NULL,
+            last_heartbeat_at TIMESTAMPTZ NOT NULL,
+            status VARCHAR(50) NOT NULL
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    // Create indexes for runner queries
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_runners_status ON runners(status)")
+        .execute(pool)
+        .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_runners_last_heartbeat ON runners(last_heartbeat_at)",
+    )
+    .execute(pool)
+    .await?;
+
     tracing::info!("Database migrations completed successfully");
     Ok(())
 }
