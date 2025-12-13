@@ -6,36 +6,40 @@ WARNING: This is an experimental project. I'm testing things, my priorities can 
 
 ## Current Objective
 
-Implement the process module with a container-first strategy that will replace capabilities (like GitHub Actions).
+~~Implement the process module with a container-first strategy that will replace capabilities (like GitHub Actions).~~
 
-For now, the initial idea is to have function-scoped containers managed with Podman that are launched with something like `sleep 99999999` and run the commands with `exec -it`. I need to think about how to combine this with logging - maybe accepting logging level as table input, or sending stderr/stdout to different logging levels based on user request.
+**DONE!** Process and container modules are implemented and working. Runner now requires Podman, spawns containers on-demand, and manages a stack for nested container contexts. Logging integration works with configurable levels for stdout/stderr.
+
+Next up: Build out the plugin system and create initial plugins (git, http, etc.) that use the container infrastructure.
 
 ## Priority Tasks
 
 ### High Priority
 
-1. Process module with container execution
-   - Only `process.run()` calls execute inside containers, all Lua code runs in the runner
-   - By default, a long-lived bare Alpine container can be available for process execution
-   - Support ephemeral containers spawned per plugin operation
-   - Support stage-level persistent containers for multi-step operations
-   - Figure out how to integrate with logging (stdout/stderr capture)
+1. ~~Process module with container execution~~ **DONE!**
+   - ✓ Only `process.run()` calls execute inside containers, all Lua code runs in the runner
+   - ✓ Default Alpine container available for process execution (starts on job begin)
+   - ✓ Support ephemeral containers spawned per `container.run()` operation
+   - ✓ Container manager handles multiple containers with stack tracking
+   - ✓ Logging integrated with stdout/stderr capture and configurable log levels
+   - ✓ Entrypoint override to handle images with custom entrypoints (like alpine/git)
+   - Stage-level persistent containers still pending (declarative `container = "image"` in stage definition)
 
 2. Plugin system
    - Create plugin API and structure
    - Register plugins in runner
    - Inject plugins into Lua sandbox
    - Create initial git plugin using process module
+   
+3. Implement filesystem module
+  - Workspace-jailed operations
+  - File read/write within container context
 
 ### Medium Priority (No Specific Order)
 
 - Implement HTTP module
   - Rate limiting
   - HTTP client for external API calls
-  
-- Implement filesystem module
-  - Workspace-jailed operations
-  - File read/write within container context
   
 - Implement secret module
   - Secure secret storage
@@ -44,6 +48,10 @@ For now, the initial idea is to have function-scoped containers managed with Pod
 - Implement archive module
   - Tar/zip operations
   - Artifact handling
+  
+- Improve input module to allow: booleans, numbers, enums
+  - Current implementation only supports strings
+  - Need to parse and validate other types
 
 ### Low Priority
 
@@ -173,9 +181,39 @@ plugins = {"git", "slack"}
 
 Container runtime is mandatory for all runners, so no need to declare it.
 
+## Implementation Status
+
+**Recently Completed:**
+- Process module fully functional with container execution
+- Container module with nested container.run() support  
+- Multi-container management with stack-based context switching
+- Podman integration with on-demand container spawning
+- Better APIs: `context.log_error()`, `JobResult::error()`, etc.
+- Removed unnecessary service trait abstractions
+- Fixed task leaks (log sender always aborted, max_parallel_jobs enforced with semaphore)
+- Runner checks podman availability on startup (hard requirement)
+- Entrypoint override for images with custom entrypoints
+
+**What's Working:**
+- Default container starts with job and stays running
+- `process.run()` executes commands in current container context
+- `container.run(image, fn)` pushes new container, runs function, pops container
+- Nested containers work (container.run inside container.run)
+- Stdout/stderr capture with configurable log levels
+- Working directory changes (cwd parameter)
+- Exit code handling
+- Workspace mounted at /workspace in all containers
+
+**Next Steps:**
+- Stage-level container declarations (container = "rust:latest" in stage definition)
+- Plugin system implementation
+- Initial plugins: git, http, filesystem, secret, archive
+
 ## Notes
 
 - Container runtime (Podman or Kubernetes) is now mandatory for runners
 - No more capability system - if you have container runtime, you can run anything
 - GitHub Actions model: runners just need Docker, everything else comes from images
 - Capability system added unnecessary complexity that containerization solves naturally
+- Containers use image hash for naming to handle multiple images per job
+- Default image: docker.io/alpine:latest (configurable via DEFAULT_CONTAINER_IMAGE env var)

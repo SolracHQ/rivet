@@ -38,3 +38,40 @@ pub struct JobResult {
     pub output: Option<serde_json::Value>,
     pub error_message: Option<String>,
 }
+
+impl JobResult {
+    /// Creates a successful job result
+    pub fn success() -> Self {
+        Self {
+            success: true,
+            exit_code: 0,
+            output: None,
+            error_message: None,
+        }
+    }
+
+    /// Creates a successful job result with output
+    pub fn success_with_output(output: serde_json::Value) -> Self {
+        Self {
+            success: true,
+            exit_code: 0,
+            output: Some(output),
+            error_message: None,
+        }
+    }
+
+    /// Creates a failed job result with error message and exit code
+    pub fn error(error_message: String, exit_code: i32) -> Self {
+        Self {
+            success: false,
+            exit_code,
+            output: None,
+            error_message: Some(error_message),
+        }
+    }
+
+    /// Creates a failed job result with default exit code of 1
+    pub fn failed(error_message: String) -> Self {
+        Self::error(error_message, 1)
+    }
+}

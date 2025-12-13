@@ -9,7 +9,4 @@ use serde::{Deserialize, Serialize};
 pub struct RegisterRunner {
     /// Unique identifier for the runner
     pub runner_id: String,
-
-    /// List of capabilities this runner supports
-    pub capabilities: Vec<String>,
 }

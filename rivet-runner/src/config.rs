@@ -3,6 +3,7 @@
 //! Defines all configurable parameters for the runner including
 //! polling intervals, logging configuration, and orchestrator connection settings.
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 /// Runner configuration
@@ -17,15 +18,17 @@ pub struct Config {
     /// Orchestrator base URL (e.g., "http://localhost:8080")
     pub orchestrator_url: String,
 
+    /// Base directory for job workspaces (default: /tmp)
+    pub workspace_base: PathBuf,
+
+    /// Default container image for job execution (default: docker.io/alpine:latest)
+    pub default_container_image: String,
+
     /// How often to poll the orchestrator for new jobs
     pub poll_interval: Duration,
 
     /// How often to send buffered logs to the orchestrator
     pub log_send_interval: Duration,
-
-    /// Maximum number of log entries to buffer before forcing a send
-    #[allow(dead_code)]
-    pub log_buffer_size: usize,
 
     /// Maximum time a job can run before timing out
     #[allow(dead_code)]
@@ -36,7 +39,6 @@ pub struct Config {
     pub labels: std::collections::HashMap<String, String>,
 
     /// Max parallel jobs the runner can handle
-    #[allow(dead_code)]
     pub max_parallel_jobs: usize,
 }
 
@@ -46,9 +48,10 @@ impl Config {
         Self {
             runner_id,
             orchestrator_url,
+            workspace_base: PathBuf::from("/tmp"),
+            default_container_image: "docker.io/alpine:latest".to_string(),
             poll_interval: Duration::from_secs(5),
             log_send_interval: Duration::from_secs(30),
-            log_buffer_size: 100,
             job_timeout: Duration::from_secs(300), // 5 minutes
             labels: std::collections::HashMap::new(),
             max_parallel_jobs: 2,
@@ -60,9 +63,10 @@ impl Config {
     /// Expected environment variables:
     /// - RUNNER_ID (required)
     /// - ORCHESTRATOR_URL (required)
+    /// - WORKSPACE_BASE (optional, default: /tmp)
+    /// - DEFAULT_CONTAINER_IMAGE (optional, default: docker.io/alpine:latest)
     /// - POLL_INTERVAL (optional, seconds, default: 5)
     /// - LOG_SEND_INTERVAL (optional, seconds, default: 30)
-    /// - LOG_BUFFER_SIZE (optional, default: 100)
     /// - JOB_TIMEOUT (optional, seconds, default: 300)
     /// - MAX_PARALLEL_JOBS (optional, default: 2)
     pub fn from_env() -> anyhow::Result<Self> {
@@ -71,6 +75,15 @@ impl Config {
 
         let orchestrator_url = std::env::var("ORCHESTRATOR_URL")
             .map_err(|_| anyhow::anyhow!("ORCHESTRATOR_URL environment variable not set"))?;
+
+        let workspace_base = std::env::var("WORKSPACE_BASE")
+            .ok()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/tmp"));
+
+        let default_container_image = std::env::var("DEFAULT_CONTAINER_IMAGE")
+            .ok()
+            .unwrap_or_else(|| "docker.io/alpine:latest".to_string());
 
         let poll_interval = std::env::var("POLL_INTERVAL")
             .ok()
@@ -83,11 +96,6 @@ impl Config {
             .and_then(|s| s.parse::<u64>().ok())
             .map(Duration::from_secs)
             .unwrap_or(Duration::from_secs(30));
-
-        let log_buffer_size = std::env::var("LOG_BUFFER_SIZE")
-            .ok()
-            .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or(100);
 
         let job_timeout = std::env::var("JOB_TIMEOUT")
             .ok()
@@ -103,9 +111,10 @@ impl Config {
         Ok(Self {
             runner_id,
             orchestrator_url,
+            workspace_base,
+            default_container_image,
             poll_interval,
             log_send_interval,
-            log_buffer_size,
             job_timeout,
             labels: std::collections::HashMap::new(),
             max_parallel_jobs,
@@ -143,10 +152,6 @@ impl Config {
             anyhow::bail!("log_send_interval must be greater than 0");
         }
 
-        if self.log_buffer_size == 0 {
-            anyhow::bail!("log_buffer_size must be greater than 0");
-        }
-
         Ok(())
     }
 }
@@ -169,7 +174,6 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.poll_interval, Duration::from_secs(5));
         assert_eq!(config.log_send_interval, Duration::from_secs(30));
-        assert_eq!(config.log_buffer_size, 100);
         assert!(config.validate().is_ok());
     }
 

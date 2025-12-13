@@ -31,18 +31,13 @@ impl OrchestratorClient {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn register_runner(
-        &self,
-        runner_id: &str,
-        capabilities: Vec<String>,
-    ) -> Result<Runner> {
+    pub async fn register_runner(&self, runner_id: &str) -> Result<Runner> {
         let url = format!("{}/api/runners/register", self.base_url);
         let response = self
             .client
             .post(&url)
             .json(&RegisterRunner {
                 runner_id: runner_id.to_string(),
-                capabilities,
             })
             .send()
             .await?;

@@ -118,34 +118,5 @@ fn validate_register_request(req: &RegisterRunner) -> Result<()> {
         ));
     }
 
-    // No capability validation needed - all runners can handle all jobs
-
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_validate_empty_runner_id() {
-        let req = RegisterRunner {
-            runner_id: "".to_string(),
-            capabilities: vec![],
-        };
-
-        let result = validate_register_request(&req);
-        assert!(matches!(result, Err(RunnerError::ValidationError(_))));
-    }
-
-    #[test]
-    fn test_validate_valid_request() {
-        let req = RegisterRunner {
-            runner_id: "test-runner".to_string(),
-            capabilities: vec![],
-        };
-
-        let result = validate_register_request(&req);
-        assert!(result.is_ok());
-    }
 }

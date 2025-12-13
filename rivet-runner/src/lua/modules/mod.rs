@@ -9,8 +9,12 @@
 //! - Orchestrator connection (for logging)
 //! - Job parameters and state
 
+pub mod container;
 pub mod input;
 pub mod log;
+pub mod process;
 
+pub use container::register_container_module;
 pub use input::register_input_module;
 pub use log::register_log_module;
+pub use process::register_process_module;

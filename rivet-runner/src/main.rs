@@ -12,11 +12,12 @@
 //! secure Lua sandboxes, and streams logs back periodically.
 
 mod config;
+mod context;
 mod lua;
+mod podman;
 mod scheduler;
-mod service;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info, warn};
@@ -24,9 +25,6 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::config::Config;
 use crate::scheduler::JobPoller;
-use crate::service::{
-    CapabilitiesService, ExecutionService, StandardCapabilitiesService, StandardExecutionService,
-};
 use rivet_client::OrchestratorClient;
 
 #[tokio::main]
@@ -42,6 +40,11 @@ async fn main() -> Result<()> {
 
     info!("Starting Rivet Runner");
 
+    // Check podman availability
+    info!("Checking podman availability...");
+    podman::check_podman_available()?;
+    info!("Podman check passed");
+
     // Load configuration
     let config = load_config()?;
     info!(
@@ -54,28 +57,13 @@ async fn main() -> Result<()> {
 
     info!("Orchestrator client initialized");
 
-    // Initialize services
-    let capabilities_service = StandardCapabilitiesService::new(config.runner_id.clone());
-    let capabilities = capabilities_service
-        .discover()
-        .context("Failed to discover capabilities")?;
-
-    info!("Discovered {} capabilities", capabilities.len());
-    for cap in &capabilities {
-        info!("  - {}", cap);
-    }
-
-    // Register capabilities with orchestrator (with retry logic)
-    info!("Registering capabilities with orchestrator");
-    register_with_retry(&client, &config.runner_id, capabilities).await?;
-    info!("Capabilities registered successfully");
-
-    let execution_service: Arc<dyn ExecutionService> = Arc::new(StandardExecutionService::new());
-
-    info!("Services initialized");
+    // Register runner
+    info!("Registering runner with orchestrator");
+    register_with_retry(&client, &config.runner_id).await?;
+    info!("Runner registered successfully");
 
     // Create job poller
-    let poller = JobPoller::new(config.clone(), client, execution_service);
+    let poller = JobPoller::new(config.clone(), client);
 
     info!("Runner initialized successfully");
     info!(
@@ -113,11 +101,7 @@ fn load_config() -> Result<Config> {
 ///
 /// This handles the case where the orchestrator may not be ready yet when
 /// the runner starts (common in container environments).
-async fn register_with_retry(
-    client: &Arc<OrchestratorClient>,
-    runner_id: &str,
-    capabilities: Vec<String>,
-) -> Result<()> {
+async fn register_with_retry(client: &Arc<OrchestratorClient>, runner_id: &str) -> Result<()> {
     const MAX_RETRIES: u32 = 10;
     const INITIAL_DELAY_MS: u64 = 500;
     const MAX_DELAY_MS: u64 = 30_000;
@@ -128,10 +112,7 @@ async fn register_with_retry(
     loop {
         attempt += 1;
 
-        match client
-            .register_runner(runner_id, capabilities.clone())
-            .await
-        {
+        match client.register_runner(runner_id).await {
             Ok(_) => {
                 if attempt > 1 {
                     info!(

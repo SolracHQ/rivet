@@ -1,56 +1,47 @@
 //! Job poller
 //!
-//! Polls the orchestrator for scheduled jobs and executes them using the
-//! execution service. Manages concurrent job execution and periodic log sending.
+//! Polls the orchestrator for scheduled jobs and executes them.
+//! Each job runs in its own task with a context containing logs, workspace, and container stack.
 
-use anyhow::{Context, Result};
+use anyhow::{Context as AnyhowContext, Result};
+use rivet_core::domain::job::JobResult;
+use rivet_lua::parse_pipeline_metadata;
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tokio::time::{self, Duration};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::config::Config;
-use crate::service::{ExecutionService, InMemoryLogBuffer, LogBufferService};
+use crate::context::Context;
+use crate::lua::executor::LuaExecutor;
 use rivet_client::OrchestratorClient;
-use rivet_lua::parse_pipeline_metadata;
 
 /// Job poller that continuously polls for and executes jobs
 pub struct JobPoller {
     config: Config,
     client: Arc<OrchestratorClient>,
-    execution_service: Arc<dyn ExecutionService>,
+    semaphore: Arc<Semaphore>,
 }
 
 impl JobPoller {
     /// Creates a new job poller
-    ///
-    /// # Arguments
-    /// * `config` - Runner configuration
-    /// * `client` - Orchestrator client for API operations
-    /// * `execution_service` - Service for executing jobs
-    pub fn new(
-        config: Config,
-        client: Arc<OrchestratorClient>,
-        execution_service: Arc<dyn ExecutionService>,
-    ) -> Self {
+    pub fn new(config: Config, client: Arc<OrchestratorClient>) -> Self {
+        let semaphore = Arc::new(Semaphore::new(config.max_parallel_jobs));
         Self {
             config,
             client,
-            execution_service,
+            semaphore,
         }
     }
 
     /// Starts the polling loop
-    ///
-    /// This method runs indefinitely, polling the orchestrator at the
-    /// configured interval for new jobs to execute.
     pub async fn run(&self) -> Result<()> {
         info!(
             "Starting job poller (interval: {:?})",
             self.config.poll_interval
         );
 
-        // Start heartbeat task
         let _heartbeat_handle = self.start_heartbeat_loop();
 
         let mut interval = time::interval(self.config.poll_interval);
@@ -68,18 +59,13 @@ impl JobPoller {
                 }
                 Err(e) => {
                     error!("Error during poll cycle: {:#}", e);
-                    // Continue polling even if one cycle fails
                 }
             }
         }
     }
 
     /// Performs a single poll cycle
-    ///
-    /// Fetches scheduled jobs, claims them, and executes them concurrently.
-    /// Returns the number of jobs executed.
     async fn poll_and_execute_once(&self) -> Result<usize> {
-        // Fetch jobs from orchestrator
         let jobs = self
             .client
             .list_scheduled_jobs()
@@ -93,18 +79,22 @@ impl JobPoller {
 
         info!("Found {} job(s) to execute", jobs.len());
 
-        // Spawn a task for each job
         let mut handles = Vec::new();
 
         for job in jobs {
             let job_id = job.id;
-            let handle = self.spawn_job_task(job_id);
-            handles.push(handle);
+
+            // Try to acquire semaphore permit, skip if at max capacity
+            if let Ok(permit) = self.semaphore.clone().try_acquire_owned() {
+                let handle = self.spawn_job_task(job_id, permit);
+                handles.push(handle);
+            } else {
+                debug!("Max parallel jobs reached, skipping job {} for now", job_id);
+            }
         }
 
         let num_jobs = handles.len();
 
-        // Wait for all jobs to complete
         for handle in handles {
             if let Err(e) = handle.await {
                 warn!("Job task panicked: {}", e);
@@ -114,41 +104,34 @@ impl JobPoller {
         Ok(num_jobs)
     }
 
-    /// Spawns a tokio task to execute a single job
-    fn spawn_job_task(&self, job_id: Uuid) -> tokio::task::JoinHandle<()> {
+    /// Spawns a task to execute a single job
+    fn spawn_job_task(
+        &self,
+        job_id: Uuid,
+        _permit: tokio::sync::OwnedSemaphorePermit,
+    ) -> tokio::task::JoinHandle<()> {
         let client = Arc::clone(&self.client);
-        let execution_service = Arc::clone(&self.execution_service);
-        let log_send_interval = self.config.log_send_interval;
-        let runner_id = self.config.runner_id.clone();
+        let config = self.config.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = Self::execute_job_with_logging(
-                job_id,
-                runner_id,
-                client,
-                execution_service,
-                log_send_interval,
-            )
-            .await
-            {
+            if let Err(e) = Self::execute_job(job_id, config, client).await {
                 error!("Failed to execute job {}: {:#}", job_id, e);
             }
+            // Permit is automatically released when dropped
         })
     }
 
-    /// Executes a single job with periodic log sending
-    async fn execute_job_with_logging(
+    /// Executes a single job with log streaming
+    async fn execute_job(
         job_id: Uuid,
-        runner_id: String,
+        config: Config,
         client: Arc<OrchestratorClient>,
-        execution_service: Arc<dyn ExecutionService>,
-        log_send_interval: Duration,
     ) -> Result<()> {
         info!("Starting execution of job {}", job_id);
 
         // Claim the job
         let exec_info = client
-            .claim_job(job_id, &runner_id)
+            .claim_job(job_id, &config.runner_id)
             .await
             .context("Failed to claim job")?;
 
@@ -157,26 +140,12 @@ impl JobPoller {
             exec_info.job_id, exec_info.pipeline_id
         );
 
-        // Update job status to running
-        if let Err(e) = client
-            .update_job_status(job_id, rivet_core::domain::job::JobStatus::Running)
-            .await
-        {
-            warn!("Failed to update job status to running: {:#}", e);
-            // Continue anyway - execution is more important
-        }
-
         // Parse pipeline metadata
         let metadata = match parse_pipeline_metadata(&exec_info.pipeline_source) {
             Ok(meta) => meta,
             Err(e) => {
                 error!("Failed to parse pipeline metadata: {:#}", e);
-                let result = rivet_core::domain::job::JobResult {
-                    success: false,
-                    exit_code: 1,
-                    output: None,
-                    error_message: Some(format!("Failed to parse pipeline: {:#}", e)),
-                };
+                let result = JobResult::failed(format!("Failed to parse pipeline: {:#}", e));
                 let _ = client.complete_job(job_id, result).await;
                 return Err(e);
             }
@@ -188,34 +157,42 @@ impl JobPoller {
             metadata.stages.len()
         );
 
-        // Create log buffer for this job
-        let log_buffer: Arc<dyn LogBufferService> = Arc::new(InMemoryLogBuffer::new());
+        // Create execution context
+        let context = Context::new(job_id, config.workspace_base.clone(), exec_info.parameters);
 
-        // Start periodic log sending task
-        let log_sender = Self::start_log_sender(
+        // Start the default container
+        context.log_info("Starting default container...".to_string());
+        if let Err(e) = context
+            .container_manager
+            .start_default(&config.default_container_image)
+        {
+            error!("Failed to start default container: {:#}", e);
+            context.log_error(format!("Failed to start default container: {}", e));
+            let result = JobResult::failed(format!("Failed to start default container: {}", e));
+            let _ = client.complete_job(job_id, result).await;
+            return Err(e);
+        }
+        context.log_info("Default container started successfully".to_string());
+
+        // Spawn log sender task
+        let log_sender = Self::spawn_log_sender(
             job_id,
-            Arc::clone(&log_buffer),
+            Arc::clone(&context),
             Arc::clone(&client),
-            log_send_interval,
+            config.log_send_interval,
         );
 
-        // Execute the job
-        let result = execution_service
-            .execute_job(
-                exec_info.job_id,
-                metadata,
-                &exec_info.pipeline_source,
-                exec_info.parameters,
-                Arc::clone(&log_buffer),
-            )
-            .await
-            .context("Job execution failed")?;
+        // Create executor and execute pipeline
+        let executor = LuaExecutor::new(Arc::clone(&context));
+        let result = executor
+            .execute_pipeline(job_id, metadata, &exec_info.pipeline_source)
+            .await;
 
-        // Stop the periodic log sender
+        // Always abort log sender
         log_sender.abort();
 
-        // Send any remaining logs
-        let remaining_logs = log_buffer.drain();
+        // Send remaining logs
+        let remaining_logs = context.drain_logs();
         if !remaining_logs.is_empty() {
             info!(
                 "Sending {} remaining logs for job {}",
@@ -224,7 +201,6 @@ impl JobPoller {
             );
             if let Err(e) = client.send_logs(job_id, remaining_logs).await {
                 warn!("Failed to send final logs: {:#}", e);
-                // Don't fail the job just because log sending failed
             }
         }
 
@@ -234,7 +210,16 @@ impl JobPoller {
             if result.success { "success" } else { "failure" }
         );
 
-        // Report completion to orchestrator
+        // Cleanup container
+        context.log_info("Cleaning up container...".to_string());
+        if let Err(e) = context.container_manager.cleanup() {
+            warn!("Failed to cleanup container: {:#}", e);
+            context.log_warning(format!("Failed to cleanup container: {}", e));
+        } else {
+            context.log_info("Container cleaned up successfully".to_string());
+        }
+
+        // Report completion
         client
             .complete_job(job_id, result)
             .await
@@ -243,10 +228,10 @@ impl JobPoller {
         Ok(())
     }
 
-    /// Starts a background task that periodically sends logs to the orchestrator
-    fn start_log_sender(
+    /// Spawns a background task to send logs periodically
+    fn spawn_log_sender(
         job_id: Uuid,
-        log_buffer: Arc<dyn LogBufferService>,
+        context: Arc<Context>,
         client: Arc<OrchestratorClient>,
         interval: Duration,
     ) -> tokio::task::JoinHandle<()> {
@@ -256,8 +241,7 @@ impl JobPoller {
             loop {
                 ticker.tick().await;
 
-                // Drain logs from buffer
-                let logs = log_buffer.drain();
+                let logs = context.drain_logs();
 
                 if logs.is_empty() {
                     debug!("No logs to send for job {}", job_id);
@@ -268,13 +252,12 @@ impl JobPoller {
 
                 if let Err(e) = client.send_logs(job_id, logs).await {
                     error!("Failed to send logs for job {}: {:#}", job_id, e);
-                    // Continue trying on next interval
                 }
             }
         })
     }
 
-    /// Starts a background task that sends periodic heartbeats to the orchestrator
+    /// Starts a background task to send heartbeats
     fn start_heartbeat_loop(&self) -> tokio::task::JoinHandle<()> {
         let client = Arc::clone(&self.client);
         let runner_id = self.config.runner_id.clone();
@@ -290,7 +273,6 @@ impl JobPoller {
 
                 if let Err(e) = client.send_heartbeat(&runner_id).await {
                     warn!("Failed to send heartbeat: {:#}", e);
-                    // Continue trying on next interval
                 }
             }
         })

@@ -5,4 +5,5 @@
 //! - Sandbox creation with registered modules
 //! - Job parameter and log buffer integration
 
+pub mod executor;
 pub mod modules;
