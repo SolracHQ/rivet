@@ -12,7 +12,6 @@ pub async fn register(pool: &PgPool, req: RegisterRunner) -> Result<Runner, sqlx
 
     let runner = Runner {
         id: req.runner_id.clone(),
-        capabilities: req.capabilities.clone(),
         registered_at: now,
         last_heartbeat_at: now,
         status: RunnerStatus::Online,
@@ -20,16 +19,14 @@ pub async fn register(pool: &PgPool, req: RegisterRunner) -> Result<Runner, sqlx
 
     sqlx::query(
         r#"
-        INSERT INTO runners (id, capabilities, registered_at, last_heartbeat_at, status)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO runners (id, registered_at, last_heartbeat_at, status)
+        VALUES ($1, $2, $3, $4)
         ON CONFLICT (id) DO UPDATE SET
-            capabilities = EXCLUDED.capabilities,
             last_heartbeat_at = EXCLUDED.last_heartbeat_at,
             status = EXCLUDED.status
         "#,
     )
     .bind(&req.runner_id)
-    .bind(&req.capabilities)
     .bind(now)
     .bind(now)
     .bind("Online")
@@ -63,7 +60,7 @@ pub async fn update_heartbeat(pool: &PgPool, runner_id: &str) -> Result<bool, sq
 pub async fn find_by_id(pool: &PgPool, id: &str) -> Result<Option<Runner>, sqlx::Error> {
     let row = sqlx::query_as::<_, RunnerRow>(
         r#"
-        SELECT id, capabilities, registered_at, last_heartbeat_at, status
+        SELECT id, registered_at, last_heartbeat_at, status
         FROM runners
         WHERE id = $1
         "#,
@@ -79,7 +76,7 @@ pub async fn find_by_id(pool: &PgPool, id: &str) -> Result<Option<Runner>, sqlx:
 pub async fn list_all(pool: &PgPool) -> Result<Vec<Runner>, sqlx::Error> {
     let rows = sqlx::query_as::<_, RunnerRow>(
         r#"
-        SELECT id, capabilities, registered_at, last_heartbeat_at, status
+        SELECT id, registered_at, last_heartbeat_at, status
         FROM runners
         ORDER BY registered_at DESC
         "#,
@@ -131,7 +128,6 @@ pub async fn mark_stale_runners_offline(
 #[derive(sqlx::FromRow)]
 struct RunnerRow {
     id: String,
-    capabilities: Vec<String>,
     registered_at: chrono::DateTime<chrono::Utc>,
     last_heartbeat_at: chrono::DateTime<chrono::Utc>,
     status: String,
@@ -148,7 +144,6 @@ impl From<RunnerRow> for Runner {
 
         Runner {
             id: row.id,
-            capabilities: row.capabilities,
             registered_at: row.registered_at,
             last_heartbeat_at: row.last_heartbeat_at,
             status,

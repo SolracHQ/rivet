@@ -6,8 +6,8 @@
 use anyhow::{Context, Result, anyhow};
 use uuid::Uuid;
 
-use crate::api::ApiClient;
 use crate::types::IdOrPrefix;
+use rivet_client::OrchestratorClient;
 
 /// Resolve a pipeline ID or prefix to a full UUID
 ///
@@ -26,7 +26,10 @@ use crate::types::IdOrPrefix;
 /// - No pipeline matches the prefix
 /// - Multiple pipelines match the prefix (ambiguous)
 /// - API call fails
-pub async fn resolve_pipeline_id(client: &ApiClient, id_or_prefix: &IdOrPrefix) -> Result<Uuid> {
+pub async fn resolve_pipeline_id(
+    client: &OrchestratorClient,
+    id_or_prefix: &IdOrPrefix,
+) -> Result<Uuid> {
     // If it's already a full UUID, return it
     if let Some(uuid) = id_or_prefix.as_uuid() {
         return Ok(uuid);
@@ -80,7 +83,10 @@ pub async fn resolve_pipeline_id(client: &ApiClient, id_or_prefix: &IdOrPrefix) 
 /// - No job matches the prefix
 /// - Multiple jobs match the prefix (ambiguous)
 /// - API call fails
-pub async fn resolve_job_id(client: &ApiClient, id_or_prefix: &IdOrPrefix) -> Result<Uuid> {
+pub async fn resolve_job_id(
+    client: &OrchestratorClient,
+    id_or_prefix: &IdOrPrefix,
+) -> Result<Uuid> {
     // If it's already a full UUID, return it
     if let Some(uuid) = id_or_prefix.as_uuid() {
         return Ok(uuid);
@@ -132,7 +138,7 @@ pub async fn resolve_job_id(client: &ApiClient, id_or_prefix: &IdOrPrefix) -> Re
 /// - Multiple jobs match the prefix (ambiguous)
 /// - API call fails
 pub async fn resolve_job_id_in_pipeline(
-    client: &ApiClient,
+    client: &OrchestratorClient,
     pipeline_id: Uuid,
     id_or_prefix: &IdOrPrefix,
 ) -> Result<Uuid> {

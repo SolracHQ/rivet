@@ -2,7 +2,6 @@
 //!
 //! Command-line interface for interacting with the Rivet orchestrator.
 
-mod api;
 mod commands;
 mod config;
 mod id_resolver;

@@ -8,6 +8,7 @@ Usage:
     ./dev.py restart - Restart all services
     ./dev.py logs    - Tail all log files
     ./dev.py clean   - Stop services and remove data
+    ./dev.py cli ... - Run rivet-cli with given arguments
 """
 
 import os
@@ -280,6 +281,10 @@ def clean():
     print("Cleanup complete")
 
 
+def cli(args: list[str]) -> None:
+    subprocess.run(["./target/debug/rivet-cli"] + args, check=True)
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -293,6 +298,7 @@ def main():
         "restart": restart,
         "logs": tail_logs,
         "clean": clean,
+        "cli": lambda: cli(sys.argv[2:]),
     }
 
     if command not in commands:

@@ -90,7 +90,6 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         r#"
         CREATE TABLE IF NOT EXISTS runners (
             id VARCHAR(255) PRIMARY KEY,
-            capabilities TEXT[] NOT NULL,
             registered_at TIMESTAMPTZ NOT NULL,
             last_heartbeat_at TIMESTAMPTZ NOT NULL,
             status VARCHAR(50) NOT NULL

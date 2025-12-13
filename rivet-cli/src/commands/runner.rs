@@ -7,8 +7,8 @@ use clap::Subcommand;
 use colored::*;
 use rivet_core::domain::runner::{Runner, RunnerStatus};
 
-use crate::api::ApiClient;
 use crate::config::Config;
+use rivet_client::OrchestratorClient;
 
 /// Runner subcommands
 #[derive(Subcommand)]
@@ -25,7 +25,7 @@ pub enum RunnerCommands {
 /// * `command` - The runner command to execute
 /// * `config` - The CLI configuration
 pub async fn handle_runner_command(command: RunnerCommands, config: &Config) -> Result<()> {
-    let client = ApiClient::new(&config.orchestrator_url);
+    let client = OrchestratorClient::new(&config.orchestrator_url);
 
     match command {
         RunnerCommands::List => list_runners(&client).await,
@@ -33,7 +33,7 @@ pub async fn handle_runner_command(command: RunnerCommands, config: &Config) -> 
 }
 
 /// List all registered runners
-async fn list_runners(client: &ApiClient) -> Result<()> {
+async fn list_runners(client: &OrchestratorClient) -> Result<()> {
     let runners = client.list_runners().await?;
 
     if runners.is_empty() {
@@ -58,10 +58,6 @@ fn print_runner_summary(runner: &Runner) {
 
     println!("  {} Runner {}", "▸".cyan(), runner.id.bold());
     println!("    Status:       {}", status_colored);
-    println!(
-        "    Capabilities: {}",
-        runner.capabilities.len().to_string().dimmed()
-    );
     println!(
         "    Registered:   {}",
         runner

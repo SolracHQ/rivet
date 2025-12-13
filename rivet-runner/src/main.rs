@@ -13,7 +13,6 @@
 
 mod config;
 mod lua;
-mod repository;
 mod scheduler;
 mod service;
 
@@ -24,12 +23,11 @@ use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::config::Config;
-use crate::repository::{HttpJobRepository, HttpLogRepository, HttpRunnerRepository};
-use crate::repository::{JobRepository, LogRepository, RunnerRepository};
 use crate::scheduler::JobPoller;
 use crate::service::{
     CapabilitiesService, ExecutionService, StandardCapabilitiesService, StandardExecutionService,
 };
+use rivet_client::OrchestratorClient;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -51,21 +49,10 @@ async fn main() -> Result<()> {
         config.runner_id, config.orchestrator_url
     );
 
-    // Initialize repositories
-    let job_repo: Arc<dyn JobRepository> = Arc::new(HttpJobRepository::new(
-        config.orchestrator_url.clone(),
-        config.runner_id.clone(),
-    ));
+    // Initialize orchestrator client
+    let client = Arc::new(OrchestratorClient::new(config.orchestrator_url.clone()));
 
-    let runner_repo: Arc<dyn RunnerRepository> = Arc::new(HttpRunnerRepository::new(
-        config.orchestrator_url.clone(),
-        config.runner_id.clone(),
-    ));
-
-    let log_repo: Arc<dyn LogRepository> =
-        Arc::new(HttpLogRepository::new(config.orchestrator_url.clone()));
-
-    info!("Repositories initialized");
+    info!("Orchestrator client initialized");
 
     // Initialize services
     let capabilities_service = StandardCapabilitiesService::new(config.runner_id.clone());
@@ -80,7 +67,7 @@ async fn main() -> Result<()> {
 
     // Register capabilities with orchestrator (with retry logic)
     info!("Registering capabilities with orchestrator");
-    register_with_retry(&runner_repo, capabilities).await?;
+    register_with_retry(&client, &config.runner_id, capabilities).await?;
     info!("Capabilities registered successfully");
 
     let execution_service: Arc<dyn ExecutionService> = Arc::new(StandardExecutionService::new());
@@ -88,13 +75,7 @@ async fn main() -> Result<()> {
     info!("Services initialized");
 
     // Create job poller
-    let poller = JobPoller::new(
-        config.clone(),
-        job_repo,
-        runner_repo,
-        log_repo,
-        execution_service,
-    );
+    let poller = JobPoller::new(config.clone(), client, execution_service);
 
     info!("Runner initialized successfully");
     info!(
@@ -133,7 +114,8 @@ fn load_config() -> Result<Config> {
 /// This handles the case where the orchestrator may not be ready yet when
 /// the runner starts (common in container environments).
 async fn register_with_retry(
-    runner_repo: &Arc<dyn RunnerRepository>,
+    client: &Arc<OrchestratorClient>,
+    runner_id: &str,
     capabilities: Vec<String>,
 ) -> Result<()> {
     const MAX_RETRIES: u32 = 10;
@@ -146,8 +128,8 @@ async fn register_with_retry(
     loop {
         attempt += 1;
 
-        match runner_repo
-            .register_capabilities(capabilities.clone())
+        match client
+            .register_runner(runner_id, capabilities.clone())
             .await
         {
             Ok(_) => {
@@ -165,7 +147,10 @@ async fn register_with_retry(
                         "Failed to register with orchestrator after {} attempts",
                         MAX_RETRIES
                     );
-                    return Err(e.context("Failed to register capabilities with orchestrator"));
+                    return Err(anyhow::anyhow!(
+                        "Failed to register capabilities with orchestrator: {}",
+                        e
+                    ));
                 }
 
                 warn!(

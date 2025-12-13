@@ -10,16 +10,14 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::config::Config;
-use crate::repository::{JobRepository, LogRepository, RunnerRepository};
 use crate::service::{ExecutionService, InMemoryLogBuffer, LogBufferService};
+use rivet_client::OrchestratorClient;
 use rivet_lua::parse_pipeline_metadata;
 
 /// Job poller that continuously polls for and executes jobs
 pub struct JobPoller {
     config: Config,
-    job_repo: Arc<dyn JobRepository>,
-    runner_repo: Arc<dyn RunnerRepository>,
-    log_repo: Arc<dyn LogRepository>,
+    client: Arc<OrchestratorClient>,
     execution_service: Arc<dyn ExecutionService>,
 }
 
@@ -28,22 +26,16 @@ impl JobPoller {
     ///
     /// # Arguments
     /// * `config` - Runner configuration
-    /// * `job_repo` - Repository for job operations
-    /// * `runner_repo` - Repository for runner operations
-    /// * `log_repo` - Repository for log operations
+    /// * `client` - Orchestrator client for API operations
     /// * `execution_service` - Service for executing jobs
     pub fn new(
         config: Config,
-        job_repo: Arc<dyn JobRepository>,
-        runner_repo: Arc<dyn RunnerRepository>,
-        log_repo: Arc<dyn LogRepository>,
+        client: Arc<OrchestratorClient>,
         execution_service: Arc<dyn ExecutionService>,
     ) -> Self {
         Self {
             config,
-            job_repo,
-            runner_repo,
-            log_repo,
+            client,
             execution_service,
         }
     }
@@ -89,8 +81,8 @@ impl JobPoller {
     async fn poll_and_execute_once(&self) -> Result<usize> {
         // Fetch jobs from orchestrator
         let jobs = self
-            .job_repo
-            .fetch_scheduled_jobs()
+            .client
+            .list_scheduled_jobs()
             .await
             .context("Failed to fetch scheduled jobs")?;
 
@@ -124,16 +116,16 @@ impl JobPoller {
 
     /// Spawns a tokio task to execute a single job
     fn spawn_job_task(&self, job_id: Uuid) -> tokio::task::JoinHandle<()> {
-        let job_repo = Arc::clone(&self.job_repo);
-        let log_repo = Arc::clone(&self.log_repo);
+        let client = Arc::clone(&self.client);
         let execution_service = Arc::clone(&self.execution_service);
         let log_send_interval = self.config.log_send_interval;
+        let runner_id = self.config.runner_id.clone();
 
         tokio::spawn(async move {
             if let Err(e) = Self::execute_job_with_logging(
                 job_id,
-                job_repo,
-                log_repo,
+                runner_id,
+                client,
                 execution_service,
                 log_send_interval,
             )
@@ -147,16 +139,16 @@ impl JobPoller {
     /// Executes a single job with periodic log sending
     async fn execute_job_with_logging(
         job_id: Uuid,
-        job_repo: Arc<dyn JobRepository>,
-        log_repo: Arc<dyn LogRepository>,
+        runner_id: String,
+        client: Arc<OrchestratorClient>,
         execution_service: Arc<dyn ExecutionService>,
         log_send_interval: Duration,
     ) -> Result<()> {
         info!("Starting execution of job {}", job_id);
 
         // Claim the job
-        let exec_info = job_repo
-            .claim_job(job_id)
+        let exec_info = client
+            .claim_job(job_id, &runner_id)
             .await
             .context("Failed to claim job")?;
 
@@ -166,7 +158,7 @@ impl JobPoller {
         );
 
         // Update job status to running
-        if let Err(e) = job_repo
+        if let Err(e) = client
             .update_job_status(job_id, rivet_core::domain::job::JobStatus::Running)
             .await
         {
@@ -185,7 +177,7 @@ impl JobPoller {
                     output: None,
                     error_message: Some(format!("Failed to parse pipeline: {:#}", e)),
                 };
-                let _ = job_repo.complete_job(job_id, result).await;
+                let _ = client.complete_job(job_id, result).await;
                 return Err(e);
             }
         };
@@ -203,7 +195,7 @@ impl JobPoller {
         let log_sender = Self::start_log_sender(
             job_id,
             Arc::clone(&log_buffer),
-            Arc::clone(&log_repo),
+            Arc::clone(&client),
             log_send_interval,
         );
 
@@ -230,7 +222,7 @@ impl JobPoller {
                 remaining_logs.len(),
                 job_id
             );
-            if let Err(e) = log_repo.send_logs(job_id, remaining_logs).await {
+            if let Err(e) = client.send_logs(job_id, remaining_logs).await {
                 warn!("Failed to send final logs: {:#}", e);
                 // Don't fail the job just because log sending failed
             }
@@ -243,7 +235,7 @@ impl JobPoller {
         );
 
         // Report completion to orchestrator
-        job_repo
+        client
             .complete_job(job_id, result)
             .await
             .context("Failed to complete job")?;
@@ -255,7 +247,7 @@ impl JobPoller {
     fn start_log_sender(
         job_id: Uuid,
         log_buffer: Arc<dyn LogBufferService>,
-        log_repo: Arc<dyn LogRepository>,
+        client: Arc<OrchestratorClient>,
         interval: Duration,
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
@@ -274,7 +266,7 @@ impl JobPoller {
 
                 debug!("Sending {} logs for job {}", logs.len(), job_id);
 
-                if let Err(e) = log_repo.send_logs(job_id, logs).await {
+                if let Err(e) = client.send_logs(job_id, logs).await {
                     error!("Failed to send logs for job {}: {:#}", job_id, e);
                     // Continue trying on next interval
                 }
@@ -284,7 +276,8 @@ impl JobPoller {
 
     /// Starts a background task that sends periodic heartbeats to the orchestrator
     fn start_heartbeat_loop(&self) -> tokio::task::JoinHandle<()> {
-        let runner_repo = Arc::clone(&self.runner_repo);
+        let client = Arc::clone(&self.client);
+        let runner_id = self.config.runner_id.clone();
         let heartbeat_interval = Duration::from_secs(30);
 
         tokio::spawn(async move {
@@ -295,7 +288,7 @@ impl JobPoller {
 
                 debug!("Sending heartbeat");
 
-                if let Err(e) = runner_repo.send_heartbeat().await {
+                if let Err(e) = client.send_heartbeat(&runner_id).await {
                     warn!("Failed to send heartbeat: {:#}", e);
                     // Continue trying on next interval
                 }

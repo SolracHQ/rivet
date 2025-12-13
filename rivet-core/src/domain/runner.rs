@@ -11,10 +11,6 @@ pub struct Runner {
     /// Unique identifier for the runner
     pub id: String,
 
-    /// List of capabilities this runner supports
-    /// Examples: "process", "plugin.git", "container.docker"
-    pub capabilities: Vec<String>,
-
     /// When this runner was first registered
     pub registered_at: DateTime<Utc>,
 

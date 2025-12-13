@@ -27,7 +27,7 @@ pub type Result<T> = std::result::Result<T, RunnerError>;
 /// Register a runner with the orchestrator
 ///
 /// This creates a new runner entry or updates an existing one.
-/// When a runner re-registers, it updates its capabilities and heartbeat.
+/// When a runner re-registers, it updates its heartbeat.
 pub async fn register_runner(pool: &PgPool, req: RegisterRunner) -> Result<Runner> {
     // Validate request
     validate_register_request(&req)?;
@@ -35,11 +35,7 @@ pub async fn register_runner(pool: &PgPool, req: RegisterRunner) -> Result<Runne
     // Register runner in database
     let runner = runner_repository::register(pool, req).await?;
 
-    tracing::info!(
-        "Runner registered: {} with {} capabilities",
-        runner.id,
-        runner.capabilities.len()
-    );
+    tracing::info!("Runner registered: {}", runner.id);
 
     Ok(runner)
 }
@@ -122,26 +118,7 @@ fn validate_register_request(req: &RegisterRunner) -> Result<()> {
         ));
     }
 
-    if req.capabilities.is_empty() {
-        return Err(RunnerError::ValidationError(
-            "Runner must have at least one capability".to_string(),
-        ));
-    }
-
-    // Validate each capability string
-    for cap in &req.capabilities {
-        if cap.trim().is_empty() {
-            return Err(RunnerError::ValidationError(
-                "Capability names cannot be empty".to_string(),
-            ));
-        }
-
-        if cap.len() > 255 {
-            return Err(RunnerError::ValidationError(
-                "Capability name is too long (max 255 characters)".to_string(),
-            ));
-        }
-    }
+    // No capability validation needed - all runners can handle all jobs
 
     Ok(())
 }
@@ -154,17 +131,6 @@ mod tests {
     fn test_validate_empty_runner_id() {
         let req = RegisterRunner {
             runner_id: "".to_string(),
-            capabilities: vec!["process".to_string()],
-        };
-
-        let result = validate_register_request(&req);
-        assert!(matches!(result, Err(RunnerError::ValidationError(_))));
-    }
-
-    #[test]
-    fn test_validate_no_capabilities() {
-        let req = RegisterRunner {
-            runner_id: "test-runner".to_string(),
             capabilities: vec![],
         };
 
@@ -176,7 +142,7 @@ mod tests {
     fn test_validate_valid_request() {
         let req = RegisterRunner {
             runner_id: "test-runner".to_string(),
-            capabilities: vec!["process".to_string(), "plugin.git".to_string()],
+            capabilities: vec![],
         };
 
         let result = validate_register_request(&req);

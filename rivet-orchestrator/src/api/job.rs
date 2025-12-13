@@ -4,13 +4,13 @@
 
 use axum::{
     Json,
-    extract::{Path, Query, State},
+    extract::{Path, State},
     http::StatusCode,
 };
-use rivet_core::domain::job::{Job, JobResult, JobStatus};
+use rivet_core::domain::job::{Job, JobStatus};
 use rivet_core::domain::log::LogEntry;
-use rivet_core::dto::job::CreateJob;
-use serde::Deserialize;
+use rivet_core::dto::job::{CompleteJobRequest, CreateJob, ExecuteJobRequest, JobExecutionInfo};
+
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -88,18 +88,8 @@ pub async fn list_all_jobs(State(pool): State<PgPool>) -> ApiResult<Json<Vec<Job
 
 /// GET /jobs/scheduled
 /// List all scheduled (queued) jobs
-///
-/// Query parameters:
-/// - `runner_id` (optional): Filter jobs to only those compatible with this runner
-pub async fn list_scheduled_jobs(
-    State(pool): State<PgPool>,
-    Query(params): Query<ScheduledJobsQuery>,
-) -> ApiResult<Json<Vec<Job>>> {
-    if let Some(runner_id) = &params.runner_id {
-        tracing::debug!("Listing scheduled jobs for runner: {}", runner_id);
-    } else {
-        tracing::debug!("Listing all scheduled jobs");
-    }
+pub async fn list_scheduled_jobs(State(pool): State<PgPool>) -> ApiResult<Json<Vec<Job>>> {
+    tracing::debug!("Listing all scheduled jobs");
 
     let jobs = job_service::list_jobs_by_status(&pool, JobStatus::Queued)
         .await
@@ -116,11 +106,6 @@ pub async fn list_scheduled_jobs(
         })?;
 
     Ok(Json(jobs))
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ScheduledJobsQuery {
-    pub runner_id: Option<String>,
 }
 
 /// GET /job/pipeline/{pipeline_id}
@@ -154,7 +139,7 @@ pub async fn execute_job(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,
     Json(req): Json<ExecuteJobRequest>,
-) -> ApiResult<Json<ExecuteJobResponse>> {
+) -> ApiResult<Json<JobExecutionInfo>> {
     tracing::info!("Runner {} executing job: {}", req.runner_id, id);
 
     let (job, pipeline) = job_service::reserve_job_for_execution(&pool, id, req.runner_id)
@@ -171,7 +156,7 @@ pub async fn execute_job(
             job_service::JobError::ValidationError(msg) => ApiError::BadRequest(msg),
         })?;
 
-    let response = ExecuteJobResponse {
+    let response = JobExecutionInfo {
         job_id: job.id,
         pipeline_id: pipeline.id,
         pipeline_source: pipeline.script,
@@ -259,27 +244,4 @@ pub async fn add_job_logs(
         })?;
 
     Ok(StatusCode::CREATED)
-}
-
-// =============================================================================
-// Request/Response Types
-// =============================================================================
-
-#[derive(Debug, serde::Deserialize)]
-pub struct ExecuteJobRequest {
-    pub runner_id: String,
-}
-
-#[derive(Debug, serde::Serialize)]
-pub struct ExecuteJobResponse {
-    pub job_id: Uuid,
-    pub pipeline_id: Uuid,
-    pub pipeline_source: String,
-    pub parameters: std::collections::HashMap<String, serde_json::Value>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-pub struct CompleteJobRequest {
-    pub status: JobStatus,
-    pub result: Option<JobResult>,
 }

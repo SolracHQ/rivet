@@ -9,10 +9,10 @@ use colored::*;
 use rivet_core::domain::job::{Job, JobStatus};
 use rivet_core::domain::log::{LogEntry, LogLevel};
 
-use crate::api::ApiClient;
 use crate::config::Config;
 use crate::id_resolver::{resolve_job_id, resolve_job_id_in_pipeline, resolve_pipeline_id};
 use crate::types::IdOrPrefix;
+use rivet_client::OrchestratorClient;
 
 /// Job subcommands
 #[derive(Subcommand)]
@@ -54,7 +54,7 @@ pub enum JobCommands {
 /// * `command` - The job command to execute
 /// * `config` - The CLI configuration
 pub async fn handle_job_command(command: JobCommands, config: &Config) -> Result<()> {
-    let client = ApiClient::new(&config.orchestrator_url);
+    let client = OrchestratorClient::new(&config.orchestrator_url);
 
     match command {
         JobCommands::List => list_all_jobs(&client).await,
@@ -68,7 +68,7 @@ pub async fn handle_job_command(command: JobCommands, config: &Config) -> Result
 }
 
 /// List all jobs
-async fn list_all_jobs(client: &ApiClient) -> Result<()> {
+async fn list_all_jobs(client: &OrchestratorClient) -> Result<()> {
     let jobs = client.list_all_jobs().await?;
 
     if jobs.is_empty() {
@@ -85,7 +85,7 @@ async fn list_all_jobs(client: &ApiClient) -> Result<()> {
 }
 
 /// List all scheduled jobs
-async fn list_scheduled_jobs(client: &ApiClient) -> Result<()> {
+async fn list_scheduled_jobs(client: &OrchestratorClient) -> Result<()> {
     let jobs = client.list_scheduled_jobs().await?;
 
     if jobs.is_empty() {
@@ -105,7 +105,7 @@ async fn list_scheduled_jobs(client: &ApiClient) -> Result<()> {
 }
 
 /// Get and display a single job
-async fn get_job(client: &ApiClient, id: &str) -> Result<()> {
+async fn get_job(client: &OrchestratorClient, id: &str) -> Result<()> {
     let id_or_prefix = IdOrPrefix::parse(id);
     let uuid = resolve_job_id(client, &id_or_prefix).await?;
 
@@ -117,7 +117,7 @@ async fn get_job(client: &ApiClient, id: &str) -> Result<()> {
 }
 
 /// Get and display job logs
-async fn get_job_logs(client: &ApiClient, id: &str, follow: bool) -> Result<()> {
+async fn get_job_logs(client: &OrchestratorClient, id: &str, follow: bool) -> Result<()> {
     let id_or_prefix = IdOrPrefix::parse(id);
     let uuid = resolve_job_id(client, &id_or_prefix).await?;
 
@@ -145,7 +145,7 @@ async fn get_job_logs(client: &ApiClient, id: &str, follow: bool) -> Result<()> 
 
 /// List jobs for a specific pipeline
 async fn list_pipeline_jobs(
-    client: &ApiClient,
+    client: &OrchestratorClient,
     pipeline_id: &str,
     job_id: Option<String>,
 ) -> Result<()> {

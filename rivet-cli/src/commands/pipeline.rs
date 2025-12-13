@@ -12,10 +12,10 @@ use rivet_core::dto::pipeline::CreatePipeline;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 
-use crate::api::ApiClient;
 use crate::config::Config;
 use crate::id_resolver::resolve_pipeline_id;
 use crate::types::IdOrPrefix;
+use rivet_client::OrchestratorClient;
 
 /// Pipeline subcommands
 #[derive(Subcommand)]
@@ -85,7 +85,7 @@ fn parse_key_val(s: &str) -> Result<(String, String)> {
 /// * `command` - The pipeline command to execute
 /// * `config` - The CLI configuration
 pub async fn handle_pipeline_command(command: PipelineCommands, config: &Config) -> Result<()> {
-    let client = ApiClient::new(&config.orchestrator_url);
+    let client = OrchestratorClient::new(&config.orchestrator_url);
 
     match command {
         PipelineCommands::Create {
@@ -118,7 +118,7 @@ pub async fn handle_pipeline_command(command: PipelineCommands, config: &Config)
 ///
 /// Parses the Lua script to extract metadata and creates the pipeline.
 async fn create_pipeline(
-    client: &ApiClient,
+    client: &OrchestratorClient,
     script_path: &str,
     name_override: Option<String>,
     description_override: Option<String>,
@@ -200,7 +200,7 @@ async fn create_pipeline(
 }
 
 /// List all pipelines
-async fn list_pipelines(client: &ApiClient) -> Result<()> {
+async fn list_pipelines(client: &OrchestratorClient) -> Result<()> {
     let pipelines = client.list_pipelines().await?;
 
     if pipelines.is_empty() {
@@ -220,7 +220,7 @@ async fn list_pipelines(client: &ApiClient) -> Result<()> {
 }
 
 /// Get and display a single pipeline
-async fn get_pipeline(client: &ApiClient, id: &str) -> Result<()> {
+async fn get_pipeline(client: &OrchestratorClient, id: &str) -> Result<()> {
     let id_or_prefix = IdOrPrefix::parse(id);
     let uuid = resolve_pipeline_id(client, &id_or_prefix).await?;
 
@@ -232,7 +232,7 @@ async fn get_pipeline(client: &ApiClient, id: &str) -> Result<()> {
 }
 
 /// Delete a pipeline
-async fn delete_pipeline(client: &ApiClient, id: &str) -> Result<()> {
+async fn delete_pipeline(client: &OrchestratorClient, id: &str) -> Result<()> {
     let id_or_prefix = IdOrPrefix::parse(id);
     let uuid = resolve_pipeline_id(client, &id_or_prefix).await?;
 
@@ -249,7 +249,11 @@ async fn delete_pipeline(client: &ApiClient, id: &str) -> Result<()> {
 }
 
 /// Launch a job from a pipeline
-async fn launch_job(client: &ApiClient, id: &str, params: Vec<(String, String)>) -> Result<()> {
+async fn launch_job(
+    client: &OrchestratorClient,
+    id: &str,
+    params: Vec<(String, String)>,
+) -> Result<()> {
     let id_or_prefix = IdOrPrefix::parse(id);
     let uuid = resolve_pipeline_id(client, &id_or_prefix).await?;
 
