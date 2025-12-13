@@ -12,7 +12,7 @@ For now, the initial idea is to have function-scoped containers managed with Pod
 
 ## Priority Tasks
 
-### High Priority (In Order)
+### High Priority
 
 1. Process module with container execution
    - Only `process.run()` calls execute inside containers, all Lua code runs in the runner
