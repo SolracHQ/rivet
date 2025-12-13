@@ -7,11 +7,10 @@
 //!    - Used by CLI and Orchestrator for pipeline parsing
 //!
 //! 2. **Execution Sandbox**: For running pipeline stage scripts
-//!    - Full core modules available (log, env, process, etc.)
+//!    - Core modules must be registered by the caller (typically rivet-runner)
 //!    - Can perform I/O and system operations (within capability constraints)
 //!    - Used by Runner for actual job execution
 
-use crate::module::ModuleRegistry;
 use mlua::{Lua, LuaOptions, Result as LuaResult, StdLib};
 
 /// Create a metadata-only Lua sandbox
@@ -70,65 +69,44 @@ pub fn create_metadata_sandbox() -> LuaResult<Lua> {
     Ok(lua)
 }
 
-/// Create a full execution Lua sandbox with core modules
+/// Create a base execution Lua sandbox without modules
 ///
-/// This sandbox includes all core Rivet modules and is used for actual
-/// pipeline execution. Modules must be provided via a ModuleRegistry.
+/// This sandbox includes the same restricted standard library as the metadata sandbox,
+/// but is intended for execution contexts where modules will be registered by the caller.
 ///
-/// # Arguments
-/// * `registry` - A ModuleRegistry containing all modules to register
+/// The runner should register its modules after creating this sandbox.
 ///
 /// # Use Cases
 /// - Runner: Execute pipeline stage scripts with full capabilities
 /// - Local testing: Run pipelines with mock implementations
 ///
 /// # Security
-/// While this sandbox has access to core modules, those modules enforce:
-/// - Command whitelisting (process module)
-/// - Workspace isolation (filesystem module)
-/// - Rate limiting (http module)
-/// - Input validation (all modules)
+/// While this sandbox has the same base restrictions as the metadata sandbox,
+/// modules registered into it can provide access to:
+/// - Process execution (via process module)
+/// - Container management (via container module)
+/// - Logging (via log module)
+/// - Input parameters (via input module)
+/// - Output values (via output module)
 ///
 /// # Example
 /// ```no_run
 /// use rivet_lua::sandbox::create_execution_sandbox;
-/// use rivet_lua::modules::{LogModule, EnvModule, LogSink, VarProvider};
-/// use rivet_lua::RivetModule;
-/// use rivet_lua::ModuleRegistry;
-/// use rivet_core::domain::log::LogLevel;
 ///
-/// // Implement LogSink for your use case
-/// struct MyLogSink;
-/// impl LogSink for MyLogSink {
-///     fn write(&mut self, level: LogLevel, message: &str) {
-///         println!("[{:?}] {}", level, message);
-///     }
-/// }
+/// let lua = create_execution_sandbox()?;
 ///
-/// // Implement VarProvider for your use case
-/// struct MyVarProvider;
-/// impl VarProvider for MyVarProvider {
-///     fn get(&self, name: &str) -> Option<String> {
-///         if name == "BRANCH" { Some("main".to_string()) } else { None }
-///     }
-///     fn keys(&self) -> Vec<String> {
-///         vec!["BRANCH".to_string()]
-///     }
-/// }
-///
-/// let mut registry = ModuleRegistry::new();
-/// registry.register(LogModule::new(MyLogSink));
-/// registry.register(EnvModule::new(MyVarProvider));
-///
-/// let lua = create_execution_sandbox(&registry)?;
+/// // Runner would register modules here:
+/// // register_log_module(&lua)?;
+/// // register_input_module(&lua)?;
+/// // etc.
 ///
 /// // Now can execute stage scripts
 /// lua.load(r#"
-///     log.info("Starting build on branch: " .. env.get("BRANCH"))
+///     log.info("Starting build")
 /// "#).exec()?;
 /// # Ok::<(), mlua::Error>(())
 /// ```
-pub fn create_execution_sandbox(registry: &ModuleRegistry) -> LuaResult<Lua> {
+pub fn create_execution_sandbox() -> LuaResult<Lua> {
     // Create Lua with the same restricted stdlib as metadata sandbox
     let lua = unsafe {
         Lua::unsafe_new_with(
@@ -141,9 +119,6 @@ pub fn create_execution_sandbox(registry: &ModuleRegistry) -> LuaResult<Lua> {
     lua.globals().set("require", mlua::Nil)?;
     lua.globals().set("dofile", mlua::Nil)?;
     lua.globals().set("loadfile", mlua::Nil)?;
-
-    // Register all modules from registry
-    registry.register_all(&lua)?;
 
     Ok(lua)
 }
@@ -207,8 +182,8 @@ mod tests {
         let has_log: bool = lua.load(r#"return log ~= nil"#).eval().unwrap();
         assert!(!has_log);
 
-        let has_env: bool = lua.load(r#"return env ~= nil"#).eval().unwrap();
-        assert!(!has_env);
+        let has_input: bool = lua.load(r#"return input ~= nil"#).eval().unwrap();
+        assert!(!has_input);
 
         let has_process: bool = lua.load(r#"return process ~= nil"#).eval().unwrap();
         assert!(!has_process);
@@ -243,23 +218,26 @@ mod tests {
     }
 
     #[test]
-    fn test_execution_sandbox_empty_registry() {
-        let registry = ModuleRegistry::new();
-        let lua = create_execution_sandbox(&registry).unwrap();
+    fn test_execution_sandbox_basic_lua() {
+        let lua = create_execution_sandbox().unwrap();
 
         // Should still have basic Lua
         let result: i32 = lua.load("return 1 + 1").eval().unwrap();
         assert_eq!(result, 2);
+    }
 
-        // But no core modules since registry is empty
+    #[test]
+    fn test_execution_sandbox_no_modules_by_default() {
+        let lua = create_execution_sandbox().unwrap();
+
+        // No core modules since caller hasn't registered them yet
         let has_log: bool = lua.load(r#"return log ~= nil"#).eval().unwrap();
         assert!(!has_log);
     }
 
     #[test]
     fn test_execution_sandbox_no_io() {
-        let registry = ModuleRegistry::new();
-        let lua = create_execution_sandbox(&registry).unwrap();
+        let lua = create_execution_sandbox().unwrap();
 
         // Even execution sandbox should not have raw io/os access
         let has_io: bool = lua.load(r#"return io ~= nil"#).eval().unwrap();
@@ -271,12 +249,24 @@ mod tests {
 
     #[test]
     fn test_execution_sandbox_no_require() {
-        let registry = ModuleRegistry::new();
-        let lua = create_execution_sandbox(&registry).unwrap();
+        let lua = create_execution_sandbox().unwrap();
 
         // require should not work even in execution sandbox
         // (plugins are loaded differently, not via require)
         let result: LuaResult<()> = lua.load(r#"require("os")"#).exec();
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_execution_sandbox_can_register_globals() {
+        let lua = create_execution_sandbox().unwrap();
+
+        // Caller can register modules as globals
+        let test_table = lua.create_table().unwrap();
+        test_table.set("value", 42).unwrap();
+        lua.globals().set("test", test_table).unwrap();
+
+        let result: i32 = lua.load("return test.value").eval().unwrap();
+        assert_eq!(result, 42);
     }
 }

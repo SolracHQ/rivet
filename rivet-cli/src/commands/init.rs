@@ -2,12 +2,14 @@
 //!
 //! Handles initialization of development environment including
 //! generation of stub files for modules and .luarc.json configuration.
+//!
+//! Stubs are fetched from the orchestrator to ensure they're always in sync
+//! with the actual module implementations running in the runner.
 
 use anyhow::{Context, Result};
 use clap::Subcommand;
 use colored::*;
-use rivet_lua::module::RivetModule;
-use rivet_lua::modules::{EnvModule, LogModule};
+use serde::Deserialize;
 use std::fs;
 use std::path::Path;
 
@@ -32,6 +34,13 @@ pub enum InitCommands {
     },
 }
 
+/// Response from the orchestrator's stub endpoint
+#[derive(Deserialize)]
+struct StubResponse {
+    name: String,
+    content: String,
+}
+
 /// Handle init commands
 ///
 /// Routes init subcommands to their respective handlers.
@@ -39,23 +48,24 @@ pub enum InitCommands {
 /// # Arguments
 /// * `command` - The init command to execute
 /// * `config` - The CLI configuration
-pub async fn handle_init_command(command: InitCommands, _config: &Config) -> Result<()> {
+pub async fn handle_init_command(command: InitCommands, config: &Config) -> Result<()> {
     match command {
         InitCommands::Lua {
             output,
             config_only,
             stubs_only,
-        } => generate_lua_dev_files(&output, config_only, stubs_only).await,
+        } => generate_lua_dev_files(&output, config_only, stubs_only, config).await,
     }
 }
 
 /// Generate Lua development files
 ///
-/// Creates .luarc.json for LSP configuration and stub files for module autocompletion.
+/// Creates .luarc.json for LSP configuration and fetches stub files from orchestrator.
 async fn generate_lua_dev_files(
     output_dir: &str,
     config_only: bool,
     stubs_only: bool,
+    config: &Config,
 ) -> Result<()> {
     let output_path = Path::new(output_dir);
 
@@ -68,7 +78,7 @@ async fn generate_lua_dev_files(
     }
 
     if generate_stubs {
-        generate_stub_files(output_path)?;
+        fetch_and_save_stubs(output_path, config).await?;
     }
 
     println!("{}", "✓ Lua development files generated!".green().bold());
@@ -94,7 +104,7 @@ fn generate_luarc_json(output_path: &Path) -> Result<()> {
     "version": "Lua 5.4"
   },
   "diagnostics": {
-    "globals": ["log", "env"]
+    "globals": ["log", "input", "output", "process", "container"]
   },
   "workspace": {
     "library": [".rivet/stubs"],
@@ -114,32 +124,41 @@ fn generate_luarc_json(output_path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Generate stub files for Rivet modules
-///
-/// Uses the actual module implementations to generate stubs,
-/// ensuring they stay in sync with the real modules.
-fn generate_stub_files(output_path: &Path) -> Result<()> {
+/// Fetch stub files from orchestrator and save them locally
+async fn fetch_and_save_stubs(output_path: &Path, config: &Config) -> Result<()> {
     let stubs_dir = output_path.join(".rivet").join("stubs");
     fs::create_dir_all(&stubs_dir)
         .with_context(|| format!("Failed to create stubs directory at {:?}", stubs_dir))?;
 
-    // Create stub implementations of the modules
-    // These use no-op providers since we only need the stub generation
-    let log_module = create_log_module();
-    let env_module = create_env_module();
+    let client = reqwest::Client::new();
+    let orchestrator_url = &config.orchestrator_url;
 
-    // Generate individual stub files
-    let modules: Vec<(&str, Box<dyn RivetModule>)> =
-        vec![("log", Box::new(log_module)), ("env", Box::new(env_module))];
+    // Get list of available stubs
+    let stubs_list: Vec<String> = client
+        .get(format!("{}/api/stubs", orchestrator_url))
+        .send()
+        .await
+        .context("Failed to fetch stubs list from orchestrator")?
+        .json()
+        .await
+        .context("Failed to parse stubs list response")?;
 
-    for (name, module) in modules {
-        let stub_content = module.stubs();
-        let stub_path = stubs_dir.join(format!("{}.lua", name));
+    // Fetch each stub file
+    for stub_name in stubs_list {
+        let stub_response: StubResponse = client
+            .get(format!("{}/api/stubs/{}", orchestrator_url, stub_name))
+            .send()
+            .await
+            .with_context(|| format!("Failed to fetch stub '{}'", stub_name))?
+            .json()
+            .await
+            .with_context(|| format!("Failed to parse stub '{}' response", stub_name))?;
 
-        fs::write(&stub_path, stub_content)
+        let stub_path = stubs_dir.join(&stub_response.name);
+        fs::write(&stub_path, stub_response.content)
             .with_context(|| format!("Failed to write stub file {:?}", stub_path))?;
 
-        println!("  {} {}.lua", "Created".green(), name);
+        println!("  {} {}", "Fetched".green(), stub_response.name);
     }
 
     println!(
@@ -149,40 +168,4 @@ fn generate_stub_files(output_path: &Path) -> Result<()> {
     );
 
     Ok(())
-}
-
-/// Create a log module instance for stub generation
-///
-/// Uses a no-op sink since we only need the stub output
-fn create_log_module() -> LogModule<NoOpLogSink> {
-    LogModule::new(NoOpLogSink)
-}
-
-/// Create an env module instance for stub generation
-///
-/// Uses a no-op provider since we only need the stub output
-fn create_env_module() -> EnvModule<NoOpVarProvider> {
-    EnvModule::new(NoOpVarProvider)
-}
-
-/// No-op log sink for stub generation
-struct NoOpLogSink;
-
-impl rivet_lua::modules::LogSink for NoOpLogSink {
-    fn write(&mut self, _level: rivet_core::domain::log::LogLevel, _message: &str) {
-        // No-op: we only need this for stub generation
-    }
-}
-
-/// No-op variable provider for stub generation
-struct NoOpVarProvider;
-
-impl rivet_lua::modules::VarProvider for NoOpVarProvider {
-    fn get(&self, _name: &str) -> Option<String> {
-        None
-    }
-
-    fn keys(&self) -> Vec<String> {
-        Vec::new()
-    }
 }

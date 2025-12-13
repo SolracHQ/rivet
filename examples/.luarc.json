@@ -4,7 +4,7 @@
     "version": "Lua 5.4"
   },
   "diagnostics": {
-    "globals": ["log", "env"]
+    "globals": ["log", "input", "output", "process", "container"]
   },
   "workspace": {
     "library": [".rivet/stubs"],

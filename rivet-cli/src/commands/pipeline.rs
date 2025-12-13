@@ -318,8 +318,8 @@ fn print_pipeline_details(pipeline: &Pipeline) {
     if !pipeline.tags.is_empty() {
         println!("  Tags:        {}", pipeline.tags.join(", "));
     }
-    if !pipeline.required_modules.is_empty() {
-        println!("  Modules:     {}", pipeline.required_modules.join(", "));
+    if !pipeline.required_plugins.is_empty() {
+        println!("  Modules:     {}", pipeline.required_plugins.join(", "));
     }
 
     println!("\n{}", "Script:".bold());

@@ -8,6 +8,7 @@ pub mod health;
 pub mod job;
 pub mod pipeline;
 pub mod runner;
+pub mod stubs;
 
 use axum::{
     Router,
@@ -48,6 +49,9 @@ pub fn create_router(pool: PgPool) -> Router {
             "/api/jobs/pipeline/{pipeline_id}",
             get(job::list_jobs_by_pipeline),
         )
+        // Stubs endpoints
+        .route("/api/stubs", get(stubs::list_stubs))
+        .route("/api/stubs/{name}", get(stubs::get_stub))
         // Add state and middleware
         .with_state(pool)
         .layer(TraceLayer::new_for_http())

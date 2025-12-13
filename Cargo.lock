@@ -1645,8 +1645,8 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "chrono",
- "mlua",
  "rivet-core",
+ "rivet-lua",
  "serde",
  "serde_json",
  "sqlx",

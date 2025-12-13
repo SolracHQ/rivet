@@ -11,14 +11,14 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use rivet_core::domain::job::JobResult;
 use rivet_core::domain::log::{LogEntry, LogLevel};
-use rivet_lua::{EnvModule, LogModule, ModuleRegistry, PipelineMetadata, create_execution_sandbox};
+use rivet_lua::{PipelineMetadata, create_execution_sandbox};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info};
 use uuid::Uuid;
 
-use crate::lua::sinks::{BufferedLogSink, JobVarProvider};
+use crate::lua::modules::{register_input_module, register_log_module};
 use crate::service::log_buffer::LogBufferService;
 
 /// Service trait for executing pipeline jobs
@@ -30,7 +30,7 @@ pub trait ExecutionService: Send + Sync {
     /// * `job_id` - The job ID
     /// * `metadata` - The parsed pipeline metadata
     /// * `pipeline_source` - The Lua source code of the pipeline
-    /// * `parameters` - Job parameters to inject as environment variables
+    /// * `parameters` - Job parameters to inject as input variables
     /// * `log_buffer` - Shared buffer for collecting logs
     ///
     /// # Returns
@@ -60,19 +60,18 @@ impl StandardExecutionService {
         parameters: HashMap<String, JsonValue>,
         log_buffer: Arc<dyn LogBufferService>,
     ) -> Result<mlua::Lua> {
-        let mut registry = ModuleRegistry::new();
+        // Create base execution sandbox
+        let lua = create_execution_sandbox().context("Failed to create execution sandbox")?;
 
-        // Add log module with buffered sink
-        let log_sink = BufferedLogSink::new(log_buffer);
-        registry.register(LogModule::new(log_sink));
+        // Register log module with buffered sink
+        register_log_module(&lua, log_buffer).context("Failed to register log module")?;
 
-        // Add env module with job parameters
-        let var_provider = JobVarProvider::new(parameters);
-        registry.register(EnvModule::new(var_provider));
+        // Register input module with job parameters
+        register_input_module(&lua, parameters).context("Failed to register input module")?;
 
-        // Create execution sandbox with registered modules
-        let lua =
-            create_execution_sandbox(&registry).context("Failed to create execution sandbox")?;
+        // TODO: Register output module
+        // TODO: Register process module
+        // TODO: Register container module
 
         Ok(lua)
     }
@@ -106,10 +105,16 @@ impl StandardExecutionService {
         // Execute the stage script
         script
             .call::<()>(())
-            .context(format!("Stage '{}' execution failed", stage_name))?;
+            .map_err(|e| anyhow::anyhow!("Stage '{}' execution failed: {}", stage_name, e))?;
 
         debug!("Stage '{}' completed successfully", stage_name);
         Ok(())
+    }
+}
+
+impl Default for StandardExecutionService {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -155,48 +160,40 @@ impl ExecutionService for StandardExecutionService {
         };
 
         // Load the pipeline into the sandbox
-        // The pipeline should set a global 'pipeline' table
-        if let Err(e) = lua
-            .load(pipeline_source)
-            .set_name("pipeline")
-            .eval::<mlua::Value>()
-        {
-            error!("Failed to load pipeline: {}", e);
+        // The pipeline should return a table with the pipeline definition
+        let pipeline_table: mlua::Table =
+            match lua.load(pipeline_source).set_name("pipeline").eval() {
+                Ok(table) => table,
+                Err(e) => {
+                    error!("Failed to load pipeline: {}", e);
+                    log_buffer.add_entry(LogEntry {
+                        timestamp: chrono::Utc::now(),
+                        level: LogLevel::Error,
+                        message: format!("Failed to load pipeline: {}", e),
+                    });
+                    return Ok(JobResult {
+                        success: false,
+                        exit_code: 1,
+                        output: None,
+                        error_message: Some(format!("Failed to load pipeline: {}", e)),
+                    });
+                }
+            };
+
+        // Store the pipeline table in globals for stage access
+        if let Err(e) = lua.globals().set("pipeline", pipeline_table) {
+            error!("Failed to set pipeline global: {}", e);
             log_buffer.add_entry(LogEntry {
                 timestamp: chrono::Utc::now(),
                 level: LogLevel::Error,
-                message: format!("Failed to load pipeline: {}", e),
+                message: format!("Failed to set pipeline global: {}", e),
             });
             return Ok(JobResult {
                 success: false,
                 exit_code: 1,
                 output: None,
-                error_message: Some(format!("Failed to load pipeline: {}", e)),
+                error_message: Some(format!("Failed to set pipeline global: {}", e)),
             });
-        }
-
-        // Store the pipeline table in globals for stage access
-        match lua.load(pipeline_source).eval::<mlua::Table>() {
-            Ok(pipeline_table) => {
-                if let Err(e) = lua.globals().set("pipeline", pipeline_table) {
-                    error!("Failed to set pipeline global: {}", e);
-                    return Ok(JobResult {
-                        success: false,
-                        exit_code: 1,
-                        output: None,
-                        error_message: Some(format!("Failed to set pipeline global: {}", e)),
-                    });
-                }
-            }
-            Err(e) => {
-                error!("Failed to evaluate pipeline as table: {}", e);
-                return Ok(JobResult {
-                    success: false,
-                    exit_code: 1,
-                    output: None,
-                    error_message: Some(format!("Failed to evaluate pipeline: {}", e)),
-                });
-            }
         }
 
         // Execute each stage

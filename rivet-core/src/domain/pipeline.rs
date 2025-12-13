@@ -13,7 +13,7 @@ pub struct Pipeline {
     pub name: String,
     pub description: Option<String>,
     pub script: String,
-    pub required_modules: Vec<String>,
+    pub required_plugins: Vec<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub tags: Vec<String>,

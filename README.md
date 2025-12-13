@@ -1,19 +1,12 @@
 # Rivet
 
-> ⚠️ **WORK IN PROGRESS** - This is a learning project. Almost nothing works yet.
+> ⚠️ **WORK IN PROGRESS** - This is an experimental learning project. Almost nothing works yet.
 
-A CI/CD tool built from scratch to learn systems programming, distributed computing, and security sandboxing.
+A CI/CD tool built from scratch to learn systems programming, distributed computing, and container orchestration.
 
-## Objective
+## What Currently Works
 
-Build a simple but functional CI/CD pipeline runner similar to Jenkins or GitHub Actions, focusing on:
-- Security-first design (sandboxed execution, controlled access to system resources)
-- Lua scripts for pipeline definitions
-- Two-tier plugin system: secure Rust core modules + flexible Lua plugins
-- Distributed job execution across runners with capability-based matching
-- Understanding systems architecture and secure sandboxing
-
-This is **not** production-ready. This is for learning.
+Right now, Rivet can execute a basic pipeline with logging capabilities. See `examples/only_loggin.lua` for a working example.
 
 ## Architecture
 
@@ -23,225 +16,132 @@ CLI/Client → Orchestrator ← Runner(s)
           PostgreSQL + Redis
 ```
 
-- **Orchestrator**: Manages state, stores pipelines/jobs, coordinates execution, matches jobs to capable runners
-- **Runner**: Stateless workers that execute Lua scripts in sandboxed environments, reports capabilities on startup
+- **Orchestrator**: Manages state, stores pipelines/jobs, coordinates execution
+- **Runner**: Stateless workers that execute Lua scripts in sandboxed environments
 - **Core**: Shared types, DTOs, and traits across components
 
-## System Design
+## Development Setup
 
-```
-┌─────────────────┐
-│       CLI       │  - Create Jobs & Pipelines
-│                 │  - Request Executions
-└────────┬────────┘
-         │ HTTP
-         │
-┌────────▼────────┐
-│  Orchestrator   │  - Job Queue & Matching
-│                 │  - Pipeline Storage
-│                 │  - Runner Registry
-└────────┬────────┘
-         │ HTTP Polling
-         │
-┌────────▼────────┐
-│     Runner      │  ┌──────────────────────┐
-│                 │  │  Lua Sandbox         │
-│  Core Modules   │──│  - Pipeline Script   │
-│  (Rust)         │  │  - Lua Plugins       │
-│  - log          │  │  - Limited stdlib    │
-│  - env          │  └──────────────────────┘
-│  - process*     │
-│  - http*        │  * = Requires capability
-│  - filesystem*  │
-│  - container*   │
-└─────────────────┘
-```
+### Prerequisites
 
-## Two-Tier Plugin System
+- Rust (stable)
+- Podman
+- Python 3
 
-Rivet uses a **security-focused two-tier architecture**:
+### Quick Start
 
-### Tier 1: Rust Core Modules (Security Boundary)
+Use the `dev.py` script to manage the development environment:
 
-Low-level, dangerous operations implemented in Rust with strict security enforcement:
+```bash
+# Start all services (PostgreSQL, orchestrator, runner)
+./dev.py start
 
-- **log** - Buffered logging to orchestrator
-- **env** - Access to environment variables and parameters
-- **process** - Execute whitelisted binaries (requires `process` capability)
-- **http** - Rate-limited HTTP client (requires `http` capability)
-- **filesystem** - Workspace-jailed file operations (requires `filesystem` capability)
-- **container** - Docker/Podman operations (requires `container` capability)
+# View logs
+./dev.py logs
 
-Core modules enforce:
-- Command whitelisting
-- Workspace isolation
-- Rate limiting
-- Input validation
+# Stop all services
+./dev.py stop
 
-### Tier 2: Lua Plugins (User Space)
+# Restart services
+./dev.py restart
 
-High-level, domain-specific logic implemented in Lua using core modules:
-
-```lua
--- plugins/git.lua
-local git = {}
-
-function git.clone(config)
-    process.run({
-        command = "git",
-        args = {"clone", "--branch", config.branch, config.url}
-    })
-end
-
-return git
+# Stop and remove all data
+./dev.py clean
 ```
 
-**Key insight:** Lua plugins can't bypass security because they can only use core modules, which enforce policy.
+The script will:
+1. Start PostgreSQL in a Podman container
+2. Build the project with `cargo build`
+3. Start the orchestrator (logs to `logs/orchestrator.log`)
+4. Start the runner (logs to `logs/runner.log`)
 
-### Plugin Examples
+All logs are written to the `logs/` directory.
 
-**Built-in plugins (included):**
-- `git` - Clone, commit, push (uses `process`)
-- `slack` - Notifications (uses `http`)
-- `docker-compose` - Multi-container apps (uses `process` + `filesystem`)
+## Running the Example
 
-**User plugins (you write):**
-- Custom deployment scripts
-- Internal API integrations
-- Company-specific workflows
-
-No Rust knowledge required. Just Lua + core module APIs.
-
-## Pipeline Definition
+The `only_loggin.lua` example demonstrates the current functionality:
 
 ```lua
 return {
-    name = "Build and Deploy",
-    description = "Clones repo, runs tests, and notifies Slack",
-    
-    -- injects local git = require("plugin.git"), slack = require("plugin.slack")
-    requires = {"plugin.git", "plugin.slack", "container"},
-    
+    name = "Example Pipeline",
+    description = "A simple pipeline that demonstrates logging",
+
     inputs = {
-        repo_url = {
+        message = {
             type = "string",
-            description = "Git repository URL",
-            required = true  -- Better than optional = false
-        },
-        slack_webhook = {
-            type = "string", 
-            description = "Slack webhook URL",
-            required = true
-        },
-        branch = {
-            type = "string",
-            description = "Git branch to build",
-            default = "main"  -- optional with default
+            description = "A message to log",
+            default = "Hello from Rivet!"
         }
     },
-    
+
     stages = {
         {
             name = "checkout",
             script = function()
-                local branch = env.get("branch")
-                git.clone({
-                    url = env.get("repo_url"),
-                    branch = branch
-                })
+                log.info("Starting checkout stage...")
+                log.debug("This is a debug message")
+                log.info("Checkout completed successfully")
             end
         },
         {
             name = "test",
-            container = "python:3.11",
             script = function()
-                process.run({command = "pytest", args = {"tests/"}})
+                log.info("Starting test stage...")
+                local message = env.get("message", "default message")
+                log.info("Message from environment: " .. message)
+                log.warning("This is a warning message")
+                log.info("Tests completed successfully")
             end
         },
         {
-            name = "notify",
+            name = "deploy",
             script = function()
-                slack.notify({
-                    webhook = env.get("slack_webhook"),
-                    message = "Build completed for " .. env.get("branch")
-                })
+                log.info("Starting deploy stage...")
+                log.info("Deploying application...")
+                log.info("Deployment completed successfully")
             end
         }
     }
 }
 ```
 
-## Capability System
+This pipeline demonstrates:
+- Multiple stages executing sequentially
+- Logging at different levels (debug, info, warning)
+- Environment variable access through the `env` module
+- Input parameters with defaults
 
-Runners announce their capabilities on startup. Orchestrator only assigns matching jobs.
-
-**Runner capabilities:**
-```json
-{
-  "runner_id": "runner-123",
-  "capabilities": [
-    "log", "env",              // Always available
-    "process", "http",         // Core modules
-    "plugin.git",              // Lua plugins with deps satisfied
-    "plugin.slack",
-    "container.docker"         // Container runtime available
-  ],
-  "labels": {"env": "prod", "region": "us-west"}
-}
-```
-
-**Pipeline requirements:**
-```lua
-pipeline = {
-    requires = {"plugin.git", "container"},  -- Only runs on capable runners
-    -- ...
-}
-```
-
-If a runner lacks `git` binary, it won't advertise `plugin.git` capability, and won't receive jobs requiring it.
-
-## Current Status
+## Current Implementation Status
 
 - [x] Project structure (workspace with orchestrator, runner, core)
 - [x] Module trait system (`RivetModule`)
 - [x] Lua sandbox with restricted stdlib
 - [x] Log module (buffered, batched sends to orchestrator)
-- [x] Environment module
-- [x] Orchestrator API (create pipeline, execute job, stream logs)
-- [x] Runner job execution loop
-- [ ] Capability registration and job matching
-- [ ] Core modules: process, http, filesystem, container
-- [ ] Lua plugins: git, slack, docker-compose
-- [ ] Log batching (5s interval / 100 entries)
-- [ ] Container stage support
-- [ ] Job queue (Redis)
+- [x] Environment module (read-only access to job parameters)
+- [x] Basic orchestrator API (create pipeline, execute job, stream logs)
+- [x] Runner job execution loop with polling
+- [ ] Process module with container execution
+- [ ] Plugin system (create, register, and use plugins)
+- [ ] HTTP module
+- [ ] Filesystem module
+- [ ] Secret management
+- [ ] Security context and authentication
+- [ ] Job queue improvements
 
-## Design Decisions
+## Design Philosophy
 
-**Why Lua?**
-- Small, embeddable, proven sandbox track record
-- Full programming language (conditionals, loops, functions)
-- Mature Rust integration (`mlua` crate)
-- Users can write plugins without compiling Rust
+**Container-First Architecture**
 
-**Why two-tier plugins?**
-- **Security**: Dangerous ops (process, filesystem, network) controlled by Rust
-- **Flexibility**: Common patterns (git, notifications) easy to add as Lua
-- **Auditability**: Review Rust modules once, Lua plugins are safe by construction
-- **Extensibility**: Users write plugins without touching core
+Rivet is moving toward a container-first model similar to GitHub Actions. Runners only need container runtime (Podman/Kubernetes) to execute any pipeline. Instead of installing git, Python, Node.js, etc., runners spawn ephemeral containers with the right tools.
 
-**Why capability-based matching?**
-- Not all runners have same tools (git, docker, k8s access)
-- Fail fast at schedule time, not runtime
-- Enables heterogeneous runner pools (dev vs prod, x86 vs ARM)
+**Two-Tier Plugin System**
 
-**Why Lua plugins over dylibs?**
-- No compilation step, no ABI compatibility issues
-- Easier to review and test
-- Can't escape sandbox (unlike native code)
-- Simpler distribution (just text files)
+- **Rust Core Modules**: Low-level operations (process, http, filesystem) with security enforcement
+- **Lua Plugins**: High-level domain logic (git, notifications) using core modules
 
-## Security Model
+Lua plugins can't bypass security because they only use core modules, which enforce policy.
+
+**Security Model**
 
 ```
 Pipeline Script (untrusted user code)
@@ -250,27 +150,20 @@ Lua Plugins (community/user code)
     ↓ can only use
 Rust Core Modules (audited once)
     ↓ enforce
-Security Policy (whitelist, workspace jail, rate limits)
+Security Policy (container isolation, workspace jail, rate limits)
 ```
 
-**Three layers of defense:**
-1. Pipeline scripts can't access Lua stdlib (no `io`, `os`, `require` arbitrary files)
-2. Plugins can only call core modules (no native code execution)
-3. Core modules validate all inputs and enforce resource limits
+## Why Lua?
 
-**Attack surface:** Only the Rust core modules. If they're secure, everything above is automatically safe.
+- Small, embeddable, proven sandbox track record
+- Full programming language (conditionals, loops, functions)
+- Mature Rust integration (`mlua` crate)
+- Users can write plugins without compiling Rust
 
-## Future Ideas
+## Next Steps
 
-- Web UI for pipeline visualization and log streaming
-- Kubernetes runner (stages as k8s Jobs)
-- Secret management integration (Vault, k8s secrets)
-- Artifact storage and caching
-- Matrix builds (test across multiple versions/platforms)
-- Plugin marketplace
-
-But first: Get process + filesystem + http modules working, implement git plugin, run a real build end-to-end.
+See `documents/Tasks.md` for detailed roadmap and current objectives.
 
 ---
 
-**This is a learning project.** Expect breaking changes, incomplete features, and exploration of different approaches.
+**This is a learning project.** Expect breaking changes, incomplete features, and exploration of different approaches. My priorities may change frequently as I experiment with different ideas.

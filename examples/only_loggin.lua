@@ -23,7 +23,7 @@ return {
             name = "test",
             script = function()
                 log.info("Starting test stage...")
-                local message = env.get("message", "default message")
+                local message = input.get("message", "default message")
                 log.info("Message from environment: " .. message)
                 log.warning("This is a warning message")
                 log.info("Tests completed successfully")
