@@ -18,13 +18,9 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
             name VARCHAR(255) NOT NULL,
             description TEXT,
             script TEXT NOT NULL,
-            required_modules TEXT[] NOT NULL DEFAULT '{}',
             created_at TIMESTAMPTZ NOT NULL,
             updated_at TIMESTAMPTZ NOT NULL,
-            tags TEXT[] NOT NULL DEFAULT '{}',
-            timeout_seconds BIGINT,
-            max_retries INTEGER NOT NULL DEFAULT 0,
-            env_vars JSONB NOT NULL DEFAULT '{}'
+            tags JSONB NOT NULL DEFAULT '[]'
         )
         "#,
     )

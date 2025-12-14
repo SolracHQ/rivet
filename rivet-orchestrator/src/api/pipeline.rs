@@ -21,7 +21,7 @@ pub async fn create_pipeline(
     State(pool): State<PgPool>,
     Json(req): Json<CreatePipeline>,
 ) -> ApiResult<Json<Pipeline>> {
-    tracing::info!("Creating pipeline: {}", req.name);
+    tracing::info!("Creating pipeline from script");
 
     let pipeline = pipeline_service::create_pipeline(&pool, req)
         .await

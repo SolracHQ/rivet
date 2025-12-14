@@ -1,4 +1,4 @@
-return {
+return pipeline.define({
     name = "Example Pipeline",
     description = "A simple pipeline that demonstrates logging",
 
@@ -38,4 +38,4 @@ return {
             end
         }
     }
-}
+})

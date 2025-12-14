@@ -27,8 +27,11 @@ impl OrchestratorClient {
     /// let client = OrchestratorClient::new("http://localhost:8080");
     /// let pipeline = client.create_pipeline(CreatePipeline {
     ///     name: "my-pipeline".to_string(),
-    ///     script: "-- Lua script here".to_string(),
-    ///     schedule: None,
+    ///     description: None,
+    ///     script: "return { name = 'test', stages = {} }".to_string(),
+    ///     required_modules: vec![],
+    ///     tags: vec![],
+    ///     config: None,
     /// }).await?;
     /// # Ok(())
     /// # }

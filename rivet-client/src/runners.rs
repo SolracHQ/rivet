@@ -25,8 +25,7 @@ impl OrchestratorClient {
     /// # async fn example() -> anyhow::Result<()> {
     /// let client = OrchestratorClient::new("http://localhost:8080");
     /// let runner = client.register_runner(
-    ///     "my-runner-001",
-    ///     vec!["process".to_string(), "plugin.git".to_string()]
+    ///     "my-runner-001"
     /// ).await?;
     /// # Ok(())
     /// # }

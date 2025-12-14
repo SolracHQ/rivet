@@ -1,12 +1,12 @@
 # Rivet
 
-> ⚠️ **WORK IN PROGRESS** - This is an experimental learning project. Almost nothing works yet.
+> **WORK IN PROGRESS** - This is an experimental learning project for exploring systems programming, distributed computing, and container orchestration. Expect things to break and change frequently.
 
-A CI/CD tool built from scratch to learn systems programming, distributed computing, and container orchestration.
+A CI/CD tool where pipelines are Lua scripts that run in containers. Pipelines are fully validated at creation time with proper type checking and LSP support.
 
 ## What Currently Works
 
-Right now, Rivet can execute a basic pipeline with logging capabilities. See `examples/only_loggin.lua` for a working example.
+Rivet can now execute pipelines with multiple stages, conditional execution, typed inputs with validation, and interactive CLI input collection. Check out the examples directory for working pipelines.
 
 ## Architecture
 
@@ -57,76 +57,132 @@ The script will:
 
 All logs are written to the `logs/` directory.
 
-## Running the Example
+## Pipeline Definition
 
-The `only_loggin.lua` example demonstrates the current functionality:
+Rivet supports two ways to define pipelines:
+
+### Declarative API
+
+Using `pipeline.define()` with a table structure:
 
 ```lua
-return {
-    name = "Example Pipeline",
-    description = "A simple pipeline that demonstrates logging",
-
+return pipeline.define({
+    name = "Build and Test",
+    description = "Builds the project and runs tests",
+    
     inputs = {
-        message = {
+        branch = {
             type = "string",
-            description = "A message to log",
-            default = "Hello from Rivet!"
+            description = "Git branch to build",
+            default = "main"
+        },
+        parallel_jobs = {
+            type = "number",
+            description = "Number of parallel jobs",
+            default = 4,
+            options = { 1, 2, 4, 8, 16 }
+        },
+        skip_tests = {
+            type = "bool",
+            description = "Skip test stage",
+            default = false,
+            required = false
         }
     },
-
+    
+    runner = {
+        { key = "os", value = "linux" },
+        { key = "arch", value = "x86_64" }
+    },
+    
     stages = {
         {
-            name = "checkout",
+            name = "build",
+            container = "rust:latest",
             script = function()
-                log.info("Starting checkout stage...")
-                log.debug("This is a debug message")
-                log.info("Checkout completed successfully")
+                log.info("Building project...")
+                local jobs = input.get("parallel_jobs", "4")
+                log.info("Using " .. jobs .. " parallel jobs")
             end
         },
         {
             name = "test",
+            container = "rust:latest",
+            condition = function()
+                return input.get("skip_tests") ~= "true"
+            end,
             script = function()
-                log.info("Starting test stage...")
-                local message = env.get("message", "default message")
-                log.info("Message from environment: " .. message)
-                log.warning("This is a warning message")
-                log.info("Tests completed successfully")
-            end
-        },
-        {
-            name = "deploy",
-            script = function()
-                log.info("Starting deploy stage...")
-                log.info("Deploying application...")
-                log.info("Deployment completed successfully")
+                log.info("Running tests...")
             end
         }
     }
-}
+})
 ```
 
-This pipeline demonstrates:
-- Multiple stages executing sequentially
-- Logging at different levels (debug, info, warning)
-- Environment variable access through the `env` module
-- Input parameters with defaults
+### Builder API
+
+Using `pipeline.builder()` for a fluent interface:
+
+```lua
+return pipeline.builder()
+    :name("Docker Build Pipeline")
+    :description("Builds and pushes a Docker image")
+    :input("image_name", {
+        type = "string",
+        description = "Docker image name",
+        required = true
+    })
+    :input("push_image", {
+        type = "bool",
+        description = "Push to registry",
+        default = true
+    })
+    :tag({ key = "capability", value = "docker" })
+    :stage({
+        name = "build",
+        container = "docker:latest",
+        script = function()
+            log.info("Building image...")
+        end
+    })
+    :build()
+```
+
+### LSP Support
+
+Run `rivet-cli init lua` to generate stub files and LSP configuration for autocomplete and type checking in your editor. This creates `.luarc.json` and fetches stubs into `.rivet/stubs/` - works with any Lua language server.
+
+## Features
+
+- **Typed Inputs**: String, number, and bool types with validation
+- **Default Values**: Inputs can have defaults, applied automatically
+- **Enum Options**: Restrict inputs to specific allowed values
+- **Interactive CLI**: Prompts for missing inputs with validation
+- **Conditional Stages**: Stages can have condition functions to control execution
+- **Container-per-Stage**: Each stage can specify its own container image
+- **Input Validation**: Type checking and option validation before job execution
 
 ## Current Implementation Status
 
 - [x] Project structure (workspace with orchestrator, runner, core)
-- [x] Module trait system (`RivetModule`)
 - [x] Lua sandbox with restricted stdlib
+- [x] Pipeline definition APIs (declarative and builder)
+- [x] LSP support with type stubs
+- [x] Typed input system (string, number, bool)
+- [x] Input validation with defaults and options
+- [x] Interactive CLI input collection
+- [x] Conditional stage execution
 - [x] Log module (buffered, batched sends to orchestrator)
-- [x] Environment module (read-only access to job parameters)
-- [x] Basic orchestrator API (create pipeline, execute job, stream logs)
+- [x] Input module (read-only access to job parameters)
+- [x] Basic orchestrator API (create pipeline, execute job, view logs)
 - [x] Runner job execution loop with polling
 - [ ] Process module with container execution
+- [ ] Container module (stack-based container management)
 - [ ] Plugin system (create, register, and use plugins)
 - [ ] HTTP module
 - [ ] Filesystem module
 - [ ] Secret management
 - [ ] Security context and authentication
-- [ ] Job queue improvements
 
 ## Design Philosophy
 
@@ -159,6 +215,7 @@ Security Policy (container isolation, workspace jail, rate limits)
 - Full programming language (conditionals, loops, functions)
 - Mature Rust integration (`mlua` crate)
 - Users can write plugins without compiling Rust
+- LSP support available for type checking and autocomplete
 
 ## Next Steps
 

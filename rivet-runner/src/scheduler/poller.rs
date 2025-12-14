@@ -5,7 +5,6 @@
 
 use anyhow::{Context as AnyhowContext, Result};
 use rivet_core::domain::job::JobResult;
-use rivet_lua::parse_pipeline_metadata;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tokio::time::{self, Duration};
@@ -140,23 +139,6 @@ impl JobPoller {
             exec_info.job_id, exec_info.pipeline_id
         );
 
-        // Parse pipeline metadata
-        let metadata = match parse_pipeline_metadata(&exec_info.pipeline_source) {
-            Ok(meta) => meta,
-            Err(e) => {
-                error!("Failed to parse pipeline metadata: {:#}", e);
-                let result = JobResult::failed(format!("Failed to parse pipeline: {:#}", e));
-                let _ = client.complete_job(job_id, result).await;
-                return Err(e);
-            }
-        };
-
-        info!(
-            "Executing pipeline '{}' with {} stages",
-            metadata.name,
-            metadata.stages.len()
-        );
-
         // Create execution context
         let context = Context::new(job_id, config.workspace_base.clone(), exec_info.parameters);
 
@@ -185,7 +167,7 @@ impl JobPoller {
         // Create executor and execute pipeline
         let executor = LuaExecutor::new(Arc::clone(&context));
         let result = executor
-            .execute_pipeline(job_id, metadata, &exec_info.pipeline_source)
+            .execute_pipeline(job_id, &exec_info.pipeline_source)
             .await;
 
         // Always abort log sender

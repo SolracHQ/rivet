@@ -2,218 +2,270 @@
 
 Just a simple place to put my ideas.
 
-WARNING: This is an experimental project. I'm testing things, my priorities can change any time soon, so this file will change a lot.
+**WARNING:** This is an experimental/pre-alpha project. Do NOT use in production. Things break, APIs change, features disappear. You've been warned.
 
-## Current Objective
+## Current State
 
-~~Implement the process module with a container-first strategy that will replace capabilities (like GitHub Actions).~~
+Rivet is a CI/CD system where pipelines are Lua scripts and everything runs in containers. Pipelines are fully Lua-defined, parsed and validated at creation time. The CLI now has interactive input collection with type validation. Conditional stages work properly. It's getting less bare bones.
 
-**DONE!** Process and container modules are implemented and working. Runner now requires Podman, spawns containers on-demand, and manages a stack for nested container contexts. Logging integration works with configurable levels for stdout/stderr.
+**What's actually working:**
+- Orchestrator API (create pipelines, launch jobs, view logs)
+- Runner polls orchestrator, executes jobs
+- Pipelines defined in Lua with two APIs:
+  - `pipeline.define({...})` - declarative table structure
+  - `pipeline.builder():name(...):stage(...)...` - fluent builder API
+- Pipeline validation with LSP support (stub file provides autocomplete)
+- Input system with proper types (string, number, bool)
+- Input validation (required fields, default values, enum options)
+- Interactive CLI input collection (prompts for missing inputs with validation)
+- Conditional stages (stages can have condition functions that determine if they run)
+- Core modules: log, input, process, container
+- Container stack (container.run() pushes/pops from stack in runner, not nested Podman)
+- CLI for basic operations (create, launch, list, logs, check)
+- Podman integration (spawn containers on demand in runner process)
+- Default Alpine container per job
+- Workspace sharing between containers via /workspace mount
 
-Next up: Build out the plugin system and create initial plugins (git, http, etc.) that use the container infrastructure.
+**Current bugs/annoyances:**
+- Error messages could be better (but improved from before)
+- No way to see what's happening without tailing logs manually
+- Container images with custom entrypoints need workarounds
 
-## Priority Tasks
+## What I'm Focusing On Now
 
-### High Priority
+Building out the core modules so pipelines can actually do useful things. Right now you can log and run commands, but you can't read files properly, make HTTP calls, or use secrets. Need to fix that before anything else makes sense.
 
-1. ~~Process module with container execution~~ **DONE!**
-   - ✓ Only `process.run()` calls execute inside containers, all Lua code runs in the runner
-   - ✓ Default Alpine container available for process execution (starts on job begin)
-   - ✓ Support ephemeral containers spawned per `container.run()` operation
-   - ✓ Container manager handles multiple containers with stack tracking
-   - ✓ Logging integrated with stdout/stderr capture and configurable log levels
-   - ✓ Entrypoint override to handle images with custom entrypoints (like alpine/git)
-   - Stage-level persistent containers still pending (declarative `container = "image"` in stage definition)
+**Immediate work:**
+- Filesystem module (read/write files in workspace, jailed operations)
+- HTTP module (make requests, probably with rate limiting)
+- Secret module (store secrets, inject into pipelines, redact from logs)
 
-2. Plugin system
-   - Create plugin API and structure
-   - Register plugins in runner
-   - Inject plugins into Lua sandbox
-   - Create initial git plugin using process module
-   
-3. Implement filesystem module
-  - Workspace-jailed operations
-  - File read/write within container context
+## Wishlist (May or May Not Happen)
 
-### Medium Priority (No Specific Order)
+Features I want but might never implement because life is short and this is a toy project:
 
-- Implement HTTP module
-  - Rate limiting
-  - HTTP client for external API calls
-  
-- Implement secret module
-  - Secure secret storage
-  - Controlled access from pipelines
+- **Kubernetes runner support** - Run jobs as K8s pods instead of Podman containers. Mounting workspace across pods is annoying (EFS? NFS? who knows). This would be killer for production use but it's a massive headache.
+- **Web UI** - Dashboard to see pipelines, watch logs live, launch jobs. I suck at design so it'll probably look terrible but at least people can click buttons instead of CLI.
+- **Plugin marketplace** - Let people share plugins. Probably overkill but would be cool.
+- **Distributed tracing** - See exactly what happened across orchestrators/runners. OpenTelemetry integration maybe?
+- **Caching layer** - Cache dependencies, build artifacts, whatever. Redis-backed probably.
+- **Webhook triggers** - GitHub pushes trigger pipeline runs automatically. Not hard but not priority.
+- **Pipeline templates** - Reusable pipeline fragments. DRY for CI/CD configs.
+- **Container build/push in core module** - Use runner's Podman to build, tag, and push images. Avoids Podman-in-Podman mess. Would be in container module, not a plugin.
 
-- Implement archive module
-  - Tar/zip operations
-  - Artifact handling
-  
-- Improve input module to allow: booleans, numbers, enums
-  - Current implementation only supports strings
-  - Need to parse and validate other types
+## Feature Roadmap (Loose Priority Order)
 
-### Low Priority
+These are what I think I'll actually build, roughly in this order, but who knows what I'll feel like doing tomorrow:
 
-- Evaluate PostgreSQL as queue or Redis to make orchestrator scalable
-  - Use row locks to have multiple orchestrator instances
-  - All state lives in the database
-  - Not too different from what we're doing now, but taking advantage of database features
+### 1. Core Modules (Security Edition)
 
-- Security context implementation
-  - Login system
-  - Permissions and configurations
-  - Only runners with orchestrator-generated token should pull jobs
-  - Only authorized users should run certain pipelines
-  - Only authorized pipelines should fetch certain secrets
+The current modules work but have zero security. Need to lock them down:
 
-- Add redact secret logic to logging module
-  - Prevent secrets from appearing in logs
-  - Pattern-based secret detection
+- **Process module security:**
+  - Whitelist/blacklist for allowed binaries (no random curl | bash nonsense)
+  - Resource limits (memory, CPU) per process
+  - Timeout enforcement
 
-- Improve error messages
-  - More context and specificity
-  - If polling fails, show "polling failed because orchestrator is unreachable" not just "polling fail"
-  - Better error propagation from Rust to Lua
+- **Container module security:**
+  - Image whitelist/blacklist (or registry restrictions)
+  - Pull policy enforcement (always verify signatures?)
+  - Network isolation controls
+  - Maybe add build/tag/push support (using runner's Podman, not Podman-in-Podman)
 
-- Remove capabilities system
-  - No longer useful with container-first approach
-  - Simplify runner registration
-  - Remove capability matching logic
+- **Secret module:**
+  - Encrypted storage in PostgreSQL
+  - Access control (which pipelines can read which secrets)
+  - Automatic redaction in logs (pattern matching for API keys, tokens, etc.)
+  - Secret injection via environment variables or files
 
-- Add CLI option to fetch plugins in the init system
-  - Users get completions in their IDE
-  - Similar to what we already do with stubs for core modules
-  - Better developer experience
+- **Filesystem module security:**
+  - Workspace jailing (can't escape /workspace)
+  - Read-only mode for sensitive stages
+  - File size limits (no filling up disk)
 
-## Architecture Vision
+### 2. Input Module Improvements
 
-### Container-First Execution Model
+Input system is solid now with proper validation:
 
-All Lua code runs in the runner process (not in containers). Containers are execution contexts for `process.run()` calls. State (variables, plugin instances) lives in the runner and persists across container spawns.
+- [x] Booleans (true/false, yes/no, 1/0)
+- [x] Numbers (validated as f64)
+- [x] Strings
+- [x] Enums via options field (pick from allowed values)
+- [x] Required vs optional with defaults
+- [x] Interactive CLI prompts with validation
+- [x] Type checking in orchestrator before job creation
 
-### Plugin Usage (Ephemeral Containers)
+Still want:
+- Arrays/lists (multiple values)
+- Validation rules (regex, ranges, custom validators)
 
-Plugins internally use containers, but users never see this complexity.
+### 3. Plugin System
 
-Example - git plugin implementation:
-```lua
-function git.clone(config)
-    container.run("docker.io/alpine/git:latest", function()
-        process.run({command = "git", args = {"clone", config.url}})
-    end)
-end
-```
+Turn common operations into clean APIs. Plugins use containers internally but users don't care:
 
-User just writes:
-```lua
-local git = require("git")
-git.clone({url = "https://github.com/user/repo.git", branch = "main"})
-```
+- **Git plugin** - clone, checkout, commit, push (using alpine/git container)
+- **Archive plugin** - tar/zip operations for artifacts
+- **Terraform plugin** - plan, apply (using terraform container)
 
-The plugin spawns alpine/git container, executes git clone, destroys container. User sees clean API, no container management.
+Plugins should be easy to write. Probably just Lua modules that get injected into sandbox with access to core modules.
 
-### User-Controlled Containers
+**Note:** No webhooks/notification plugins (Teams, Slack, etc.). HTTP module exists, people can write their own if they need it. I'm not maintaining that.
 
-For multi-step operations in the same environment, users can explicitly request persistent containers:
+### 4. Security Context
 
-```lua
-container.run("docker.io/python:3.11", function()
-    process.run({command = "pip", args = {"install", "-r", "requirements.txt"}})
-    process.run({command = "pytest", args = {"tests/"}})
-    process.run({command = "python", args = {"setup.py", "bdist_wheel"}})
-end)
-```
+Can't have multiple users without auth. Need runner authentication and user authentication:
 
-Container lives for the duration of the function, then is destroyed.
+- **Runner registration:**
+  - Admin creates registration token
+  - Runner uses token to register and gets permanent token
+  - All runner API calls require valid token
+  - Runners live wherever they want, just need to poll orchestrator
+  - This allows runners in intranets that can't be reached by orchestrator (like GitHub Actions)
 
-### Stage-Level Containers (Declarative)
+- **User authentication:**
+  - Simple username/password (hashed with argon2 or whatever)
+  - JWT tokens for API access
+  - CLI stores token in ~/.rivet/config
+  - API key alternative for automation
 
-For clarity, stages can declare their container. The Lua script function still runs in the runner, but all `process.run()` calls within that stage automatically execute inside the specified container:
+- **Authorization:**
+  - Basic RBAC (admin, user, viewer roles)
+  - Pipeline permissions (who can launch what)
+  - Secret permissions (who can read which secrets)
+  - Runner permissions (which runners can execute which pipelines)
 
-```lua
-{
-    name = "build",
-    container = "rust:latest",
-    script = function()
-        -- This Lua code runs in the runner
-        log.info("Starting build")
-        -- Only these process.run() calls execute inside rust:latest container
-        process.run({command = "cargo", args = {"build"}})
-        process.run({command = "cargo", args = {"test"}})
-    end
-}
-```
+### 5. High Availability / Resilience
 
-All `process.run()` calls in this stage automatically execute inside rust:latest container, but the Lua script itself (logging, variable assignments, conditionals, etc.) runs in the runner process.
+Right now orchestrator and PostgreSQL are single points of failure. My DevOps soul screams at this:
 
-### Workspace Sharing
+- **Multiple orchestrators:**
+  - All orchestrators are stateless (state lives in PostgreSQL)
+  - Use PostgreSQL as distributed job queue with row locks
+  - `SELECT FOR UPDATE SKIP LOCKED` for job claiming
+  - Load balancer (ALB/nginx) in front of orchestrators
+  - Runners can hit any orchestrator instance via load balancer
 
-The runner's workspace directory is mounted into every container at `/workspace`. This means:
-- Files written by one container are visible to the next
-- `git.clone()` in alpine/git writes files
-- pytest in python:3.11 reads those same files
-- State is shared through filesystem, not memory
+- **Job reliability:**
+  - Detect stale jobs (runner crashed, orchestrator died)
+  - Automatic retry with exponential backoff
+  - Job timeout enforcement
+  - Orphaned container cleanup
 
-### Performance Considerations
+- **PostgreSQL HA:**
+  - Not implementing myself, just accept reader/writer endpoints
+  - Auto-scaling is Aurora/RDS problem, not mine
+  - Connection pooling (pgbouncer?)
+  - For tests, SPOF is fine. I'm just presenting tools to prevent it.
 
-Each plugin operation spawns an ephemeral container (~178ms overhead measured with podman on my machine). For typical pipelines with 5-10 plugin calls, total overhead is 1-2 seconds. Build/test operations take minutes, so this is acceptable.
+### 6. Kubernetes Runner Support
 
-For performance-critical operations, use stage-level containers or explicit `container.run()` blocks to amortize the spawn cost across multiple commands.
+Big one. Running jobs as K8s pods instead of Podman containers:
 
-### Security Model
+- **Pod execution:**
+  - Each job runs in a pod
+  - Containers are pod containers (not nested Podman)
+  - Workspace sharing via PVC (probably needs ReadWriteMany - EFS on AWS, NFS, or Ceph)
 
-Containers provide isolation boundaries. Even if a user tries malicious operations, the container can't escape its mount namespace. The worst case is corrupting the workspace, which is ephemeral per-job.
+- **Challenges:**
+  - Volume mounts across multiple containers in a pod (doable)
+  - Container stack in pod (each container.run() adds sidecar? or new pod?)
+  - Performance (pod startup is slower than Podman)
+  - Cleanup (delete pods after job completes)
 
-## Pipeline Definition Changes
+- **Benefits:**
+  - Run Rivet in Kubernetes clusters
+  - Use K8s resource management (limits, requests)
+  - Auto-scaling runners (HPA)
+  - Better for production deployments
 
-The `requires` block should be changed to `plugins` block just to let the runner know it needs to inject those plugins.
+**Architecture decision:** Keeping polling model. Runners poll orchestrator, not the other way around. This allows runners in intranets/private networks that can't be reached by orchestrator. Easier architecture for me, same model as GitHub Actions.
 
-Old:
-```lua
-requires = {"plugin.git", "plugin.slack", "container"}
-```
+### 7. Observability
 
-New:
-```lua
-plugins = {"git", "slack"}
-```
+Need to see what's happening without SSHing into things:
 
-Container runtime is mandatory for all runners, so no need to declare it.
+- **Better logging:**
+  - Structured logs (JSON) from orchestrator/runner
+  - Log levels configurable per component
+  - Log aggregation (stdout to CloudWatch/Loki/whatever)
 
-## Implementation Status
+- **Metrics:**
+  - Prometheus metrics (job count, duration, success rate)
+  - Runner metrics (CPU, memory, active jobs)
+  - Queue depth, job latency
 
-**Recently Completed:**
-- Process module fully functional with container execution
-- Container module with nested container.run() support  
-- Multi-container management with stack-based context switching
-- Podman integration with on-demand container spawning
-- Better APIs: `context.log_error()`, `JobResult::error()`, etc.
-- Removed unnecessary service trait abstractions
-- Fixed task leaks (log sender always aborted, max_parallel_jobs enforced with semaphore)
-- Runner checks podman availability on startup (hard requirement)
+- **Live log streaming:**
+  - SSE endpoint for real-time log streaming
+  - CLI can `rivet job logs --follow <id>`
+  - Web UI (if it exists) shows live logs
+
+### 8. Web UI (Maybe)
+
+If I get motivated or people complain about CLI-only:
+
+- **Pages needed:**
+  - Dashboard (active jobs, recent completions, failed jobs)
+  - Pipeline list (with launch button)
+  - Job detail (status, logs, artifacts)
+  - Runner list (active runners, status)
+
+- **Technology:**
+  - Probably htmx (server-rendered, less JS bullshit)
+  - Or just vivecoded React or even flutter web
+  - Will look ugly but functional
+
+- **Features:**
+  - Live log streaming (SSE or WebSocket)
+  - Launch pipelines with input parameters
+  - View job history
+  - Maybe edit pipelines? (scary)
+
+## Implementation Notes
+
+**Container execution model:**
+- Lua code runs in runner process, NOT in containers
+- Only `process.run()` calls execute inside containers
+- State (variables, plugin instances) lives in runner memory
+- Containers are execution contexts, not isolation for Lua
+- Container stack lives in runner (push/pop with container.run()), not nested Podman
+
+**Workspace:**
+- Runner creates workspace directory per job
+- Mounted at /workspace in all containers
+- Persists across container spawns (shared via filesystem)
+- Cleaned up after job completes
+
+**Podman specifics:**
+- Using Podman (not Docker) because it's daemonless
+- Using podman command-line (not API) for simplicity
+- Containers named with image hash to avoid collisions
 - Entrypoint override for images with custom entrypoints
+- Default image: alpine:latest (configurable via env var)
+- Containers spawn in runner process, stack managed in runner
+- Prefer "container" and "containerfile" terminology over "docker" and "dockerfile"
 
-**What's Working:**
-- Default container starts with job and stays running
-- `process.run()` executes commands in current container context
-- `container.run(image, fn)` pushes new container, runs function, pops container
-- Nested containers work (container.run inside container.run)
-- Stdout/stderr capture with configurable log levels
-- Working directory changes (cwd parameter)
-- Exit code handling
-- Workspace mounted at /workspace in all containers
+**Architecture decisions:**
+- Orchestrator is stateless (all state in PostgreSQL)
+- Runners poll orchestrator (no push model, allows intranet runners)
+- Jobs are immutable once created (no editing)
+- Logs are append-only (no truncation)
+- Load balancer (ALB/nginx) goes in front of orchestrators, not my problem
 
-**Next Steps:**
-- Stage-level container declarations (container = "rust:latest" in stage definition)
-- Plugin system implementation
-- Initial plugins: git, http, filesystem, secret, archive
+**Things I'll probably change my mind about:**
+- Runner auto-registration vs manual token creation
+- Plugin API design (might need versioning)
+- Secret storage (maybe use Vault instead of PostgreSQL?)
+- K8s support architecture (pods vs jobs vs deployments?)
+- Web UI framework (htmx vs React vs just skip it)
 
-## Notes
+## Other Ideas
 
-- Container runtime (Podman or Kubernetes) is now mandatory for runners
-- No more capability system - if you have container runtime, you can run anything
-- GitHub Actions model: runners just need Docker, everything else comes from images
-- Capability system added unnecessary complexity that containerization solves naturally
-- Containers use image hash for naming to handle multiple images per job
-- Default image: docker.io/alpine:latest (configurable via DEFAULT_CONTAINER_IMAGE env var)
+- [x] Stage-level container declarations (`container = "rust:latest"` in stage definition)
+- [x] Conditional stages (custom condition functions per stage)
+- Artifacts storage (save build outputs, make available to later stages)
+- Pipeline composition (call other pipelines as stages)
+- Approval gates (pause pipeline, wait for human approval)
+- Scheduled pipelines (cron-style triggers)
+- Pipeline versioning (track changes over time)
+- Rollback mechanism (revert to previous pipeline version)
+- generic parallel execution `process.parallel(items, fn)` (runner executes several process.run() in parallel, collects results)

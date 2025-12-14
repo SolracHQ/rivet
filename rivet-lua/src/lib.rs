@@ -8,10 +8,8 @@
 //! Module implementations live in rivet-runner where they have access to
 //! runtime dependencies (container runtime, orchestrator connection, etc.).
 
-pub mod parser;
+pub mod definition;
 pub mod sandbox;
 
-pub use parser::parse_pipeline_metadata;
-pub use sandbox::{create_execution_sandbox, create_metadata_sandbox};
-
-pub use rivet_core::domain::pipeline::{InputDefinition, PipelineMetadata, StageMetadata};
+pub use definition::{PipelineDefinition, StageDefinition, parse_pipeline_definition};
+pub use sandbox::create_sandbox;

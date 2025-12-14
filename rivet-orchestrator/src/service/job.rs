@@ -5,6 +5,7 @@
 use rivet_core::domain::job::{Job, JobResult, JobStatus};
 use rivet_core::domain::pipeline::Pipeline;
 use rivet_core::dto::job::CreateJob;
+use rivet_lua::{create_sandbox, parse_pipeline_definition};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -29,12 +30,28 @@ impl From<sqlx::Error> for JobError {
 /// Create and schedule a new job
 pub async fn launch_job(pool: &PgPool, req: CreateJob) -> Result<Job, JobError> {
     // Verify pipeline exists
-    let _pipeline = pipeline_repository::find_by_id(pool, req.pipeline_id)
+    let pipeline = pipeline_repository::find_by_id(pool, req.pipeline_id)
         .await?
         .ok_or(JobError::PipelineNotFound(req.pipeline_id))?;
 
+    // Parse pipeline definition to validate and enrich parameters
+    let lua = create_sandbox()
+        .map_err(|e| JobError::ValidationError(format!("Failed to create sandbox: {}", e)))?;
+
+    let definition = parse_pipeline_definition(&lua, &pipeline.script)
+        .map_err(|e| JobError::ValidationError(format!("Failed to parse pipeline: {}", e)))?;
+
+    // Validate and enrich parameters with defaults
+    let enriched_params = validate_and_enrich_parameters(&definition, req.parameters)?;
+
+    // Create enriched request
+    let enriched_req = CreateJob {
+        pipeline_id: req.pipeline_id,
+        parameters: enriched_params,
+    };
+
     // Create job in database
-    let job = job_repository::create(pool, req).await?;
+    let job = job_repository::create(pool, enriched_req).await?;
 
     tracing::info!("Job created: {} for pipeline: {}", job.id, job.pipeline_id);
 
@@ -181,6 +198,91 @@ fn validate_completion_status(status: JobStatus) -> Result<(), JobError> {
             status
         ))),
     }
+}
+
+/// Validate and enrich job parameters with pipeline defaults
+fn validate_and_enrich_parameters(
+    definition: &rivet_lua::PipelineDefinition,
+    mut parameters: std::collections::HashMap<String, serde_json::Value>,
+) -> Result<std::collections::HashMap<String, serde_json::Value>, JobError> {
+    // Check all required inputs are provided
+    for (key, input_def) in &definition.inputs {
+        if !parameters.contains_key(key) {
+            if let Some(default) = &input_def.default {
+                // Apply default value
+                parameters.insert(key.clone(), default.clone());
+            } else if input_def.required {
+                return Err(JobError::ValidationError(format!(
+                    "Missing required input '{}' (type: {})",
+                    key, input_def.input_type
+                )));
+            }
+        } else {
+            // Validate type
+            let value = &parameters[key];
+            validate_input_type(key, value, &input_def.input_type)?;
+
+            // Validate options if provided
+            if let Some(options) = &input_def.options {
+                let value_matches = options.iter().any(|opt| match (value, opt) {
+                    (serde_json::Value::Number(a), serde_json::Value::Number(b)) => {
+                        a.as_f64() == b.as_f64()
+                    }
+                    (serde_json::Value::String(a), serde_json::Value::String(b)) => a == b,
+                    (serde_json::Value::Bool(a), serde_json::Value::Bool(b)) => a == b,
+                    _ => false,
+                });
+
+                if !value_matches {
+                    let options_str = options
+                        .iter()
+                        .map(|v| match v {
+                            serde_json::Value::String(s) => s.clone(),
+                            serde_json::Value::Number(n) => n.to_string(),
+                            serde_json::Value::Bool(b) => b.to_string(),
+                            _ => format!("{:?}", v),
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+
+                    return Err(JobError::ValidationError(format!(
+                        "Invalid value for input '{}'. Must be one of: {}",
+                        key, options_str
+                    )));
+                }
+            }
+        }
+    }
+
+    Ok(parameters)
+}
+
+/// Validate that a parameter value matches the expected type
+fn validate_input_type(
+    name: &str,
+    value: &serde_json::Value,
+    expected_type: &str,
+) -> Result<(), JobError> {
+    let matches = match expected_type {
+        "string" => value.is_string(),
+        "number" => value.is_number(),
+        "bool" => value.is_boolean(),
+        _ => {
+            return Err(JobError::ValidationError(format!(
+                "Unknown input type: {}",
+                expected_type
+            )));
+        }
+    };
+
+    if !matches {
+        return Err(JobError::ValidationError(format!(
+            "Input '{}' expected type '{}', but got: {:?}",
+            name, expected_type, value
+        )));
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

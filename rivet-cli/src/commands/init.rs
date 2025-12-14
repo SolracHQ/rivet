@@ -88,7 +88,7 @@ async fn generate_lua_dev_files(
     println!("  2. Open your pipeline script to see autocomplete and type hints");
     println!(
         "  3. Use {} to create a pipeline",
-        "rivet pipeline create".cyan()
+        "rivet-cli pipeline create".cyan()
     );
 
     Ok(())

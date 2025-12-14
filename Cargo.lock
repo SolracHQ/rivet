@@ -1652,6 +1652,7 @@ dependencies = [
  "mlua",
  "rivet-core",
  "serde",
+ "serde_json",
  "tokio",
 ]
 

@@ -2,16 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::pipeline::PipelineConfig;
-
-/// Lightweight pipeline summary for listing
 /// Request to create a new pipeline
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreatePipeline {
-    pub name: String,
-    pub description: Option<String>,
     pub script: String,
-    pub required_modules: Vec<String>,
-    pub tags: Vec<String>,
-    pub config: Option<PipelineConfig>,
 }
