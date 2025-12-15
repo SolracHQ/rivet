@@ -3,7 +3,7 @@
 //! Handles container lifecycle for job execution:
 //! - Checking podman availability
 //! - Managing multiple containers per job
-//! - Tracking container stack for nested container.run() calls
+//! - Tracking container stack for nested container.with() calls
 //! - Executing commands in containers
 //! - Cleaning up all containers after job completion
 
@@ -33,7 +33,7 @@ pub fn check_podman_available() -> Result<()> {
 
 /// Container manager for a job
 ///
-/// Manages multiple containers that can be created via container.run().
+/// Manages multiple containers that can be created via container.with().
 /// Tracks a stack of active containers, with the top being the current execution context.
 pub struct ContainerManager {
     job_id: Uuid,
@@ -177,7 +177,7 @@ impl ContainerManager {
 
     /// Pushes a container onto the stack
     ///
-    /// Used by container.run() to switch execution context.
+    /// Used by container.with() to switch execution context.
     /// The container for the given image will be created if it doesn't exist.
     ///
     /// # Arguments
@@ -201,7 +201,7 @@ impl ContainerManager {
 
     /// Pops a container from the stack
     ///
-    /// Used when container.run() block completes.
+    /// Used when container.with() block completes.
     ///
     /// # Returns
     /// The popped container name, or None if stack is empty

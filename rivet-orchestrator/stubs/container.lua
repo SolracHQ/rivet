@@ -3,7 +3,7 @@
 ---Container execution module for Rivet pipelines
 ---
 ---Provides container context management for process execution.
----All process.run() calls within a container.run() block execute
+---All process.run() calls within a container.with() block execute
 ---inside the specified container image.
 ---
 ---Containers are ephemeral and destroyed after the function completes.
@@ -18,14 +18,14 @@ container = {}
 ---with all process.run() calls forwarded to that container, then destroys the container.
 ---
 ---The container lives for the duration of the function execution. Multiple process.run()
----calls within the same container.run() block share the container, amortizing startup costs.
+---calls within the same container.with() block share the container, amortizing startup costs.
 ---
 ---@param image string Container image reference (e.g., "python:3.11", "docker.io/alpine/git:latest")
 ---@param fn function The function to execute with process calls containerized
 ---
 ---@usage
 ---Run multiple commands in the same Python environment
----container.run("python:3.11", function()
+---container.with("python:3.11", function()
 ---    process.run({cmd = "pip", args = {"install", "-r", "requirements.txt"}})
 ---    process.run({cmd = "pytest", args = {"tests/"}})
 ---    process.run({cmd = "python", args = {"setup.py", "bdist_wheel"}})
@@ -33,7 +33,7 @@ container = {}
 ---
 ---@usage
 ---Use a specific version of a tool
----container.run("node:18-alpine", function()
+---container.with("node:18-alpine", function()
 ---    process.run({cmd = "npm", args = {"install"}})
 ---    process.run({cmd = "npm", args = {"run", "build"}})
 ---    process.run({cmd = "npm", args = {"test"}})
@@ -41,7 +41,7 @@ container = {}
 ---
 ---@usage
 ---Clone a git repository using the git container
----container.run("alpine/git:latest", function()
+---container.with("alpine/git:latest", function()
 ---    local repo_url = input.require("repo_url")
 ---    local branch = input.get("branch", "main")
 ---    process.run({
@@ -52,7 +52,7 @@ container = {}
 ---
 ---@usage
 ---Build a Rust project
----container.run("rust:latest", function()
+---container.with("rust:latest", function()
 ---    process.run({cmd = "cargo", args = {"build", "--release"}})
 ---    process.run({cmd = "cargo", args = {"test"}})
 ---
@@ -66,12 +66,12 @@ container = {}
 ---
 ---@usage
 ---Nested container execution (each process.run uses innermost container)
----container.run("alpine:latest", function()
+---container.with("alpine:latest", function()
 ---    -- This runs in alpine
 ---    process.run({cmd = "apk", args = {"add", "curl"}})
 ---
 ---    -- Switch to a different container for specific tasks
----    container.run("python:3.11", function()
+---    container.with("python:3.11", function()
 ---        -- These run in python, not alpine
 ---        process.run({cmd = "python", args = {"--version"}})
 ---    end)
@@ -83,7 +83,7 @@ container = {}
 ---@usage
 ---Handle container failures gracefully
 ---local success, err = pcall(function()
----    container.run("custom-image:latest", function()
+---    container.with("custom-image:latest", function()
 ---        process.run({cmd = "custom-tool", args = {"--do-work"}})
 ---    end)
 ---end)
@@ -92,4 +92,4 @@ container = {}
 ---    log.error("Container execution failed: " .. tostring(err))
 ---    log.warning("Falling back to default behavior")
 ---end
-function container.run(image, fn) end
+function container.with(image, fn) end

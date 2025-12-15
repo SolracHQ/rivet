@@ -1,4 +1,4 @@
-return {
+return pipeline.define({
     name = "Simple Process Test",
     description = "Quick test of process and container modules",
 
@@ -89,9 +89,9 @@ return {
         {
             name = "container_test",
             script = function()
-                log.info("Testing container.run() with Python")
+                log.info("Testing container.with() with Python")
 
-                container.run("docker.io/python:3.11-alpine", function()
+                container.with("docker.io/python:3.11-alpine", function()
                     log.info("Inside Python container")
 
                     -- Check Python version
@@ -167,4 +167,4 @@ return {
             end
         }
     }
-}
+})

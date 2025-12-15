@@ -17,13 +17,7 @@
 //!
 //!     // Create a pipeline
 //!     let pipeline = client.create_pipeline(CreatePipeline {
-//!         name: "my-pipeline".to_string(),
-//!
-//!         description: None,
 //!         script: "return { name = 'test', stages = {} }".to_string(),
-//!         required_modules: vec![],
-//!         tags: vec![],
-//!         config: None,
 //!     }).await?;
 //!
 //!     println!("Created pipeline: {}", pipeline.id);

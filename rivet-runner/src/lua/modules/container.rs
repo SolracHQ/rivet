@@ -1,7 +1,7 @@
 //! Container module implementation for the runner
 //!
 //! Provides container context management for Lua scripts.
-//! Implements container.run(image, fn) which pushes a container onto the stack,
+//! Implements container.with(image, fn) which pushes a container onto the stack,
 //! executes the function, then pops the container.
 
 use mlua::prelude::*;
@@ -12,7 +12,7 @@ use crate::context::Context;
 
 /// Register the container module into a Lua context
 ///
-/// Creates a `container` global table with the `run` function
+/// Creates a `container` global table with the `with` function
 ///
 /// # Arguments
 /// * `lua` - The Lua context to register into
@@ -20,13 +20,13 @@ use crate::context::Context;
 pub fn register_container_module(lua: &Lua, context: Arc<Context>) -> LuaResult<()> {
     let container_table = lua.create_table()?;
 
-    // container.run(image, fn)
+    // container.with(image, fn)
     {
         let context = context.clone();
         container_table.set(
-            "run",
+            "with",
             lua.create_function(move |_lua_ctx, (image, func): (String, LuaFunction)| {
-                debug!("Entering container.run with image: {}", image);
+                debug!("Entering container.with with image: {}", image);
 
                 // Push container onto stack
                 let container_name =

@@ -1,6 +1,6 @@
-return {
+return pipeline.define({
     name = "Container & Process Pipeline",
-    description = "Demonstrates container.run(), process.run(), input, and log modules",
+    description = "Demonstrates container.with(), process.run(), input, and log modules",
 
     inputs = {
         git_repo = {
@@ -60,7 +60,7 @@ return {
                 end
 
                 -- Use alpine/git container for git operations
-                container.run("docker.io/alpine/git:latest", function()
+                container.with("docker.io/alpine/git:latest", function()
                     log.info("Cloning repository: " .. repo)
                     log.info("Branch: " .. branch)
 
@@ -103,7 +103,7 @@ return {
                 log.info("Testing Python environment...")
 
                 -- Use Python container for Python tasks
-                container.run("docker.io/python:3.11-alpine", function()
+                container.with("docker.io/python:3.11-alpine", function()
                     -- Check Python version
                     local version_result = process.run({
                         cmd = "python",
@@ -142,7 +142,7 @@ return {
                 log.info("Testing nested container execution...")
 
                 -- Outer container: Alpine
-                container.run("docker.io/alpine:latest", function()
+                container.with("docker.io/alpine:latest", function()
                     log.info("In Alpine container")
 
                     -- Install curl in alpine
@@ -153,7 +153,7 @@ return {
                     })
 
                     -- Inner container: Python (overrides Alpine for this block)
-                    container.run("docker.io/python:3.11-alpine", function()
+                    container.with("docker.io/python:3.11-alpine", function()
                         log.info("In Python container (nested)")
 
                         local result = process.run({
@@ -236,7 +236,7 @@ return {
 
                 -- Test container with error handling
                 local success, err = pcall(function()
-                    container.run("docker.io/invalid/nonexistent:tag", function()
+                    container.with("docker.io/invalid/nonexistent:tag", function()
                         log.info("This should not execute")
                     end)
                 end)
@@ -305,4 +305,4 @@ return {
             end
         }
     }
-}
+})

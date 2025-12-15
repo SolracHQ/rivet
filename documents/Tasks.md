@@ -20,7 +20,7 @@ Rivet is a CI/CD system where pipelines are Lua scripts and everything runs in c
 - Interactive CLI input collection (prompts for missing inputs with validation)
 - Conditional stages (stages can have condition functions that determine if they run)
 - Core modules: log, input, process, container
-- Container stack (container.run() pushes/pops from stack in runner, not nested Podman)
+- Container stack (container.with() pushes/pops from stack in runner, not nested Podman)
 - CLI for basic operations (create, launch, list, logs, check)
 - Podman integration (spawn containers on demand in runner process)
 - Default Alpine container per job
@@ -168,7 +168,7 @@ Big one. Running jobs as K8s pods instead of Podman containers:
 
 - **Challenges:**
   - Volume mounts across multiple containers in a pod (doable)
-  - Container stack in pod (each container.run() adds sidecar? or new pod?)
+  - Container stack in pod (each container.with() adds sidecar? or new pod?)
   - Performance (pod startup is slower than Podman)
   - Cleanup (delete pods after job completes)
 
@@ -227,7 +227,7 @@ If I get motivated or people complain about CLI-only:
 - Only `process.run()` calls execute inside containers
 - State (variables, plugin instances) lives in runner memory
 - Containers are execution contexts, not isolation for Lua
-- Container stack lives in runner (push/pop with container.run()), not nested Podman
+- Container stack lives in runner (push/pop with container.with()), not nested Podman
 
 **Workspace:**
 - Runner creates workspace directory per job
